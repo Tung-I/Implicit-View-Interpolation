@@ -11,6 +11,43 @@ kpts1_fname = "000_v0_origin.dat"
 kpts2_fname = "000_v2_origin.dat"
 out_dir = "results/triangulation"
 
+def initialize_subdiv2d(kpts, image_shape):
+    rect = (0, 0, image_shape[1], image_shape[0])
+    subdiv = cv2.Subdiv2D(rect)
+    
+    for p in kpts:
+        subdiv.insert((p[1], p[0]))  # Insert using (x, y) format
+    
+    return subdiv
+    
+    
+def get_triangles(subdiv, kpts):
+    triangle_list = subdiv.getTriangleList()
+    pt_idx_list = []
+
+    # Map the vertex coordinates back to the original keypoint indices
+    for t in triangle_list:
+        pts = [(t[0], t[1]), (t[2], t[3]), (t[4], t[5])]
+        pt_ids = []
+        for x, y in pts:
+            # Find the point in keypoints that matches (x, y)
+            for i, kp in enumerate(kpts):
+                if kp[1] == x and kp[0] == y:
+                    pt_ids.append(i)
+                    break
+        if len(pt_ids) == 3:
+            pt_idx_list.append(pt_ids)
+    
+    return np.array(pt_idx_list)
+
+def rescale_points(points, image_shape):
+    """Rescale keypoints from [-1, 1] to image coordinates.
+    """
+    height, width = image_shape[:2]
+    points[:, 0] = (points[:, 0] + 1) * 0.5 * height
+    points[:, 1] = (points[:, 1] + 1) * 0.5 * width
+    return points
+
 def apply_affine_transform(roi, tri_src, tri_dst, dst_shape):
     """
     roi: target region
@@ -54,42 +91,8 @@ def morph_images(im1, im2, keypoints1, keypoints2, triangles, alpha):
 
     return morph_image
 
-def add_boundary_points(kpts, im_dim):
-    h, w = im_dim[:2]
-    bound_pts = np.array([[0, 0], [0, w-1], [h-1, 0], [h-1, w-1]])
-
-    edge_x = np.linspace(0, w-1, 10, endpoint=True)
-    edge_y = np.linspace(0, h-1, 10, endpoint=True)
-    bound_pts = np.vstack([bound_pts,
-                        np.stack([np.zeros_like(edge_x), edge_x], axis=-1),
-                        np.stack([np.ones_like(edge_x)*(h-1), edge_x], axis=-1),
-                        np.stack([edge_y, np.zeros_like(edge_y)], axis=-1),
-                        np.stack([edge_y, np.ones_like(edge_y)*(w-1)], axis=-1)])
-    return np.vstack([kpts, bound_pts])
-
-def filter_triangles(triangles, kpts, max_area):
-    filtered_triangles = []
-    for tri_indices in triangles:
-        tri = kpts[tri_indices]
-        area = 0.5 * abs(np.linalg.det(np.array([
-            [tri[0, 0], tri[0, 1], 1],
-            [tri[1, 0], tri[1, 1], 1],
-            [tri[2, 0], tri[2, 1], 1]   
-        ])))
-        if max_area is None or area < max_area:
-            filtered_triangles.append(tri_indices)
-    return np.array(filtered_triangles).astype(np.int32)
-
-def rescale_points(points, image_shape):
-    """Rescale keypoints from [-1, 1] to image coordinates.
-    """
-    height, width = image_shape[:2]
-    points[:, 0] = (points[:, 0] + 1) * 0.5 * height
-    points[:, 1] = (points[:, 1] + 1) * 0.5 * width
-    return points
-
 if __name__ == "__main__":
-
+    # Load images and keypoints
     im1 = cv2.imread(os.path.join(im_pair_dir, im1_fname))
     im2 = cv2.imread(os.path.join(im_pair_dir, im2_fname))
     kpts1 = np.load(os.path.join(im_pair_dir, kpts1_fname), allow_pickle=True)
@@ -97,34 +100,18 @@ if __name__ == "__main__":
     kpts1 = rescale_points(kpts1, im1.shape)
     kpts2 = rescale_points(kpts2, im2.shape)
 
+    # Add boundary points and initialize Subdiv2D
+    subdiv = initialize_subdiv2d(kpts1, im1.shape)
 
-# # Save keypoint visualization
-# def visualize_keypoints(image, keypoints):
-#     for i in range(keypoints.shape[0]):
-#         x, y = keypoints[i]
-#         cv2.circle(image, (int(y), int(x)), 2, (0, 255, 0), -1)
-#     return image
-
-# vis_im1_kpts = visualize_keypoints(im1.copy(), keypoints1)
-# vis_im2_kpts = visualize_keypoints(im2.copy(), keypoints2)
-# # Save the images
-# cv2.imwrite(os.path.join(im_pair_dir, "kps1_vis.png"), vis_im1_kpts)
-# cv2.imwrite(os.path.join(im_pair_dir, "kps2_vis.png"), vis_im2_kpts)
-
-
-    # Triangulation on the first image
-    kpts1 = add_boundary_points(kpts1, im1.shape)
-    tri = Delaunay(kpts1)
-    triangles = tri.simplices  # Indices of the triangle vertices
+    # Get triangles from Subdiv2D
+    triangles = get_triangles(subdiv, kpts1)
     print(f"Number of triangles: {triangles.shape[0]}")
-    triangles = filter_triangles(triangles, kpts1, max_area=10000)
-    print(f"Number of triangles after filtering: {triangles.shape[0]}")
 
-    # Plit triangles on the first image
+    # Plot triangulation
     plt.figure()
     plt.triplot(kpts1[:, 1], kpts1[:, 0], triangles)
     plt.plot(kpts1[:, 1], kpts1[:, 0], 'o')
-    plt.imshow(im1)
+    plt.imshow(cv2.cvtColor(im1, cv2.COLOR_BGR2RGB))
     plt.title("Triangulation on the first image")
     plt.axis("off")
     plt.savefig(os.path.join(out_dir, "triangles.png"))

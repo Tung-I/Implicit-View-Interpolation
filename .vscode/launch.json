@@ -9,7 +9,7 @@
             "type": "debugpy",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "program": "triangulation.py",
+            "program": "triangulation2.py",
             "console": "integratedTerminal"
         }
     ]
