@@ -3,13 +3,8 @@ import cv2
 import matplotlib.pyplot as plt
 from scipy.spatial import Delaunay
 import os
-
-im_pair_dir = "data/banj_00_02"
-im1_fname = "000_v0_origin.png"
-im2_fname = "000_v2_origin.png"
-kpts1_fname = "000_v0_origin.dat"
-kpts2_fname = "000_v2_origin.dat"
-out_dir = "results/triangulation"
+import argparse
+import glob
 
 def initialize_subdiv2d(kpts, image_shape):
     rect = (0, 0, image_shape[1], image_shape[0])
@@ -61,6 +56,11 @@ def apply_affine_transform(roi, tri_src, tri_dst, dst_shape):
 def morph_images(im1, im2, keypoints1, keypoints2, triangles, alpha):
     """Morphs the two images based on the keypoints and triangles.
     """
+    if alpha == 0:
+        return im1
+    if alpha == 1:
+        return im2
+    
     morph_image = np.zeros(im1.shape, dtype=im1.dtype)
 
     for tri_indices in triangles:
@@ -92,11 +92,38 @@ def morph_images(im1, im2, keypoints1, keypoints2, triangles, alpha):
     return morph_image
 
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dir", default=" ", type=str,
+        help="Path to the list of image pairs."
+    )
+    parser.add_argument(
+        "--kpts", default=1024, type=int,
+        help="Number of keypoints to extract."
+    )
+    parser.add_argument(
+        "--frames", default=15, type=int,
+        help="Alpha value for morphing."
+    )
+
+    args = parser.parse_args()
+
+    im_pair_dir = args.dir
+    n_kpts = args.kpts
+    kpts_dir = os.path.join(im_pair_dir, f"{n_kpts}")
+    im_files = glob.glob(os.path.join(im_pair_dir, "*.png"))
+    if len(im_files) != 2:
+        raise ValueError("There should be exactly 2 png files in the data directory.")
+    im1_fname = os.path.basename(im_files[0])
+    im2_fname = os.path.basename(im_files[1])
+    n_frames = args.frames
+
     # Load images and keypoints
     im1 = cv2.imread(os.path.join(im_pair_dir, im1_fname))
     im2 = cv2.imread(os.path.join(im_pair_dir, im2_fname))
-    kpts1 = np.load(os.path.join(im_pair_dir, kpts1_fname), allow_pickle=True)
-    kpts2 = np.load(os.path.join(im_pair_dir, kpts2_fname), allow_pickle=True)
+    kpts1 = np.load(os.path.join(kpts_dir, f"{im1_fname.split('.')[0]}.dat"), allow_pickle=True)
+    kpts2 = np.load(os.path.join(kpts_dir, f"{im2_fname.split('.')[0]}.dat"), allow_pickle=True)
     kpts1 = rescale_points(kpts1, im1.shape)
     kpts2 = rescale_points(kpts2, im2.shape)
 
@@ -107,21 +134,44 @@ if __name__ == "__main__":
     triangles = get_triangles(subdiv, kpts1)
     print(f"Number of triangles: {triangles.shape[0]}")
 
-    # Plot triangulation
+    # Plot triangulation on the first trame
     plt.figure()
     plt.triplot(kpts1[:, 1], kpts1[:, 0], triangles)
     plt.plot(kpts1[:, 1], kpts1[:, 0], 'o')
     plt.imshow(cv2.cvtColor(im1, cv2.COLOR_BGR2RGB))
-    plt.title("Triangulation on the first image")
     plt.axis("off")
-    plt.savefig(os.path.join(out_dir, "triangles.png"))
+    plt.savefig(os.path.join(kpts_dir, "triangles_0.png"))
+
+    # Plot triangulation on the second trame
+    plt.figure()
+    plt.triplot(kpts2[:, 1], kpts2[:, 0], triangles)
+    plt.plot(kpts2[:, 1], kpts2[:, 0], 'o')
+    plt.imshow(cv2.cvtColor(im2, cv2.COLOR_BGR2RGB))
+    plt.axis("off")
+    plt.savefig(os.path.join(kpts_dir, "triangles_1.png"))
 
     # Morph images for different alpha values
-    alphas = [0, 0.25, 0.5, 0.75, 1]
+    print(f"Creating morphed images for {n_frames} frames.")
+    alphas = np.linspace(0, 1, n_frames)
     morph_images_list = [morph_images(im1, im2, kpts1, kpts2, triangles, alpha) for alpha in alphas]
 
     # Save the results
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    morph_out_dir = os.path.join(im_pair_dir, str(n_kpts), "tri_morph")
+    if not os.path.exists(morph_out_dir):
+        os.makedirs(morph_out_dir)
     for i, alpha in enumerate(alphas):
-        cv2.imwrite(os.path.join(out_dir, f"morph_{i}.png"), morph_images_list[i])
+        cv2.imwrite(os.path.join(morph_out_dir, f"morph_{i}.png"), morph_images_list[i])
+
+    # Save the morphed images as a mp4 file
+    import imageio
+    images = [cv2.cvtColor(morph_image, cv2.COLOR_BGR2RGB) for morph_image in morph_images_list]
+    imageio.mimsave(os.path.join(morph_out_dir, "morph.gif"), images, duration=1. / n_frames)
+
+    # Save the morphed images as a mp4 file
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(os.path.join(morph_out_dir, "morph.mp4"), fourcc, 1, (im1.shape[1], im1.shape[0]))
+    for i in range(n_frames):
+        out.write(morph_images_list[i])
+    out.release()
+    print(f"Results saved in {morph_out_dir}.")
+    print("Done.")
