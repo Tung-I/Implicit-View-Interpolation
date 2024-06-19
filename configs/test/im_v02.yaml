@@ -1,0 +1,29 @@
+main:
+    random_seed: '6666'
+    loaded_path: 'output/NIM/banjo_v02/checkpoints/model_best.pth'
+    saved_dir: 'output/NIM/banjo_v02'
+
+dataset:
+    name: 'ImageDataset'
+    kwargs:
+        path: 'data/banjo_00_02/000_v2.png'
+        sidelen: [540, 960]
+        
+net:
+    name: 'SIREN'
+    kwargs:
+        in_channels: 2
+        out_channels: 3
+        hidden_layer_config: [256, 256, 256]
+        omega_0: 100
+        omega_w: 100
+        delay_init: false
+
+metrics:
+    - name: 'PSNR'
+
+predictor:
+    name: 'ImagePredictor'
+    kwargs:
+        device: 'cuda:0'
+        im_dim: [540, 960]

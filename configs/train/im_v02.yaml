@@ -1,0 +1,65 @@
+main:
+    random_seed: '6666'
+    saved_dir: 'output/NIM/banjo_v02'
+
+dataset:
+    name: 'ImageDataset'
+    kwargs:
+        path: 'data/banjo_00_02/000_v2.png'
+        sidelen: [540, 960]
+            
+dataloader:
+    name: 'Dataloader'
+    kwargs:
+        train_batch_size: 1
+        valid_batch_size: 1
+        shuffle: true
+        num_workers: 8
+
+net:
+    name: 'SIREN'
+    kwargs:
+        in_channels: 2
+        out_channels: 3
+        hidden_layer_config: [256, 256, 256]
+        omega_0: 100
+        omega_w: 100
+        delay_init: false
+        
+losses:
+    - name: 'MSELoss'
+      weight: 1.0
+
+metrics:
+    - name: 'PSNR'
+
+optimizer:
+    name: 'Adam'
+    kwargs:
+        lr: 0.0001
+
+lr_scheduler:
+    name: StepLR
+    kwargs:
+        step_size: 1000
+        gamma: 0.95
+
+logger:
+    name: 'ImageLogger'
+    kwargs:
+        dummy_input: false
+
+monitor:
+    name: 'Monitor'
+    kwargs:
+        mode: 'min'
+        target: 'Loss'
+        saved_freq: 10000000
+        early_stop: 0
+
+trainer:
+    name: 'ImageTrainer'
+    kwargs:
+        device: 'cuda:0'
+        num_epochs: 1500
+        val_freq: 100
