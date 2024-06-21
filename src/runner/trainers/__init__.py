@@ -1,2 +1,2 @@
 from .image_trainer import ImageTrainer
-# from .warp_trainer import WarpTrainer
+from .warping_trainer import WarpingTrainer

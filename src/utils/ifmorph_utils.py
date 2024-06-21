@@ -8,6 +8,8 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import mediapipe as mp
+from collections import OrderedDict
+from src.model.nets.siren import SIREN
 from src.utils.ifmorph_point_editor import get_mediapipe_coord_dict, FaceInteractor
 
 mp_face_mesh = mp.solutions.face_mesh
@@ -566,6 +568,65 @@ def create_morphing(
             out.write(rec)
     out.release()
 
+def create_morphing_images(
+        warp_net: torch.nn.Module,
+        frame0: torch.nn.Module,
+        frame1: torch.nn.Module,
+        frame_dims: tuple,
+        n_frames: int,
+        device: torch.device,
+        blending_type="linear"
+):
+    
+    warp_net = warp_net.eval()
+    continuousp = False
+    if isinstance(frame0, torch.nn.Module):
+        frame0 = frame0.eval()
+        frame1 = frame1.eval()
+        continuousp = True
+
+    t1 = 0
+    t2 = 1
+    times = np.arange(t1, t2, (t2 - t1) / n_frames)
+    grid = get_grid(frame_dims).to(device).requires_grad_(False)
+
+    with torch.no_grad():
+        if isinstance(landmark_src, torch.Tensor):
+            landmark_src = landmark_src.clone().detach()
+        else:
+            landmark_src = torch.Tensor(landmark_src).to(device).float()
+
+        if isinstance(landmark_tgt, torch.Tensor):
+            landmark_tgt = landmark_tgt.clone().detach()
+        else:
+            landmark_tgt = torch.Tensor(landmark_tgt).to(device).float()
+
+        rec_list = []
+        for t in times:
+            if continuousp:
+                rec0, _ = warp_shapenet_inference(
+                    grid, -t, warp_net, frame0, frame_dims
+                )
+                rec1, _ = warp_shapenet_inference(
+                    grid, 1-t, warp_net, frame1, frame_dims
+                )
+            else:
+                rec0 = frame0.pixels(
+                    warp_points(warp_net, grid, -t)
+                ).reshape([frame_dims[0], frame_dims[1], frame0.n_channels])
+                rec1 = frame1.pixels(
+                    warp_points(warp_net, grid, 1 - t)
+                ).reshape([frame_dims[0], frame_dims[1], frame1.n_channels])
+
+            rec = blend_frames(rec0, rec1, t, blending_type=blending_type)
+            rec = cv2.cvtColor(rec, cv2.COLOR_RGB2BGR)
+            rec_list.append(rec)
+
+    return rec_list
+            
+           
+
+
 
 def grid_image(coords):
     N = 8
@@ -681,6 +742,8 @@ def get_landmarks(face_mesh, img):
 
 def return_points_morph_mediapipe(shape_net_src, shape_net_tgt, frame_dims,
                                   device="cuda:0"):
+    """
+    """
     shape_net_src = shape_net_src.eval()
     shape_net_tgt = shape_net_tgt.eval()
     n_channels = shape_net_src.out_features
@@ -730,6 +793,8 @@ def return_points_morph_dlib(shape_net_src, shape_net_tgt, frame_dims,
 def return_points_morph(shape_net_src, shape_net_tgt, frame_dims,
                         src_pts=None, tgt_pts=None, device="cuda:0",
                         run_mediapipe=True):
+    """
+    """
     shape_net_src = shape_net_src.eval()
     shape_net_tgt = shape_net_tgt.eval()
     dims = (frame_dims[0], frame_dims[1], shape_net_src.out_features)
@@ -771,6 +836,152 @@ def test_dlib_landmark_detection(img):
     for p in landmarks:
         im_landmarks[p[1]-1:p[1]+1, p[0]-1:p[0]+1] = (0, 255, 0)
     return im_landmarks
+
+def siren_v1_to_v2(model_in, check_equals=False):
+    """Converts the models trained using the old class to the new format.
+
+    Parameters
+    ----------
+    model_in: OrderedDict
+        Model trained by our old SIREN version (Sitzmann code).
+
+    check_equals: boolean, optional
+        Whether to check if the converted models weight match. By default this
+        is False.
+
+    Returns
+    -------
+    model_out: OrderedDict
+        The input model converted to a format recognizable by our version of
+        SIREN.
+
+    divergences: list[tuple[str, str]]
+        If `check_equals` is True, then this list contains the keys where the
+        original and converted model dictionaries are not equal. Else, this is
+        an empty list.
+
+    See Also
+    --------
+    `model.SIREN`
+    """
+    model_out = OrderedDict()
+    for k, v in model_in.items():
+        model_out[k[4:]] = v
+
+    divergences = []
+    if check_equals:
+        for k in model_in.keys():
+            test = model_in[k] == model_out[k[4:]]
+            if test.sum().item() != test.numel():
+                divergences.append((k, k[4:]))
+
+    return model_out, divergences
+
+def from_state_dict(weights: OrderedDict, device: str = "cuda:0", w0=1, ww=None):
+    """Builds a SIREN network with the topology and weights in `weights`.
+
+    Parameters
+    ----------
+    weights: OrderedDict
+        The input state_dict to use as reference.
+
+    device: str, optional
+        Device to load the weights. Default value is cpu.
+
+    w0: number, optional
+        Frequency parameter for the first layer. Default value is 1.
+
+    ww: number, optional
+        Frequency parameter for the intermediate layers. Default value is None,
+        we will assume that ww = w0 in this case
+
+    Returns
+    -------
+    model: nifm.model.SIREN
+        The NN model mirroring `weights` topology.
+
+    upgrade_to_v2: boolean
+        If `weights` was from an older version of SIREN, we convert them to our
+        format and set this to `True`, signaling this fact.
+    """
+    n_layers = len(weights) // 2
+    hidden_layer_config = [None] * (n_layers - 1)
+    keys = list(weights.keys())
+
+    bias_keys = [k for k in keys if "bias" in k]
+    i = 0
+    while i < (n_layers - 1):
+        k = bias_keys[i]
+        hidden_layer_config[i] = weights[k].shape[0]
+        i += 1
+
+    n_in_features = weights[keys[0]].shape[1]
+    n_out_features = weights[keys[-1]].shape[0]
+    model = SIREN(
+        in_channels=n_in_features,
+        out_channels=n_out_features,
+        hidden_layer_config=hidden_layer_config,
+        omega_0=w0, omega_w=ww, delay_init=True
+    )
+
+    # Loads the weights. Converts to version 2 if they are from the old version
+    # of SIREN.
+    upgrade_to_v2 = False
+    try:
+        model.load_state_dict(weights)
+    except RuntimeError:
+        print("Found weights from old version of SIREN. Converting to v2.")
+        new_weights, diff = siren_v1_to_v2(weights, True)
+        model.load_state_dict(new_weights)
+        upgrade_to_v2 = True
+
+    return model, upgrade_to_v2
+
+def from_pth(path, device="cuda:0", w0=1, ww=None):
+    """Builds a SIREN given the path to a weights file.
+
+    Note that if the weights pointed by `path` correspond to an older version
+    of SIREN, we convert it to our format and save this converted weights
+    file as `path.split(".")[0]+"_v2.pth"`.
+
+    Parameters
+    ----------
+    path: str
+        Path to the pth file.
+
+    device: str, optional
+        Device to load the weights. Default value is cpu.
+
+    w0: number, optional
+        Frequency parameter for the first layer. Default value is 1.
+
+    ww: number, optional
+        Frequency parameter for the intermediate layers. Default value is None,
+        we will assume that ww = w0 in this case.
+
+    Returns
+    -------
+    model: torch.nn.Module
+        The resulting model.
+
+    Raises
+    ------
+    FileNotFoundError if `path` points to a non-existing file.
+    """
+    if not osp.exists(path):
+        raise FileNotFoundError(f"Weights file not found at \"{path}\"")
+
+    # weights = torch.load(path, map_location=torch.device(device))
+    weights = torch.load(path, map_location='cpu')['net']
+    for k, v in weights.items():
+        weights[k] = v.to(device)
+    model, upgraded_to_v2 = from_state_dict(
+        weights, device=device, w0=w0, ww=ww
+    )
+    if upgraded_to_v2:
+        torch.save(model.state_dict(), path.split(".")[0] + "_v2.pth")
+
+    return model.to(device=device)
 
 
 if __name__ == "__main__":

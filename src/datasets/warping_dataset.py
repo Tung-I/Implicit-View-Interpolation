@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 from PIL import Image
 from torchvision import transforms
 from src.utils.ifmorph_utils import get_grid
+import math
 
 class WarpingDataset(Dataset):
     """Warping dataset.
@@ -42,34 +43,17 @@ class WarpingDataset(Dataset):
     > X = data[0]
     > print(X.shape)  # Should print something like: [1000, 3]
     """
-    def __init__(self, initial_states: list, num_samples: int,
-                 device: str = "cpu", grid_sampling: bool = True):
+    def __init__(self, initial_states: list[torch.nn.Module, torch.nn.Module], kpts_pair: list[np.array, np.array],
+                 n_samples: int, known_times=[0., 1.0], time_range=[-1.0, 1.0], device: str = "cuda:0", grid_sampling: bool = True):
         super(WarpingDataset, self).__init__()
-        self.num_samples = num_samples
+        self.num_samples = n_samples
         self.device = device
         self.grid_sampling = grid_sampling
-        self.initial_states = [None] * len(initial_states)
-        self.known_times = [None] * len(initial_states)
-        self.time_range = [-1.0, 1.0]
-        for i, (state_path, t) in enumerate(initial_states):
-            try:
-                nettype = check_network_type(state_path)
-            except NotTorchFile:
-                self.initial_states[i] = ImageDataset(
-                    state_path, batch_size=self.num_samples // 4
-                )
-            else:
-                if nettype == "siren":
-                    self.initial_states[i] = from_pth(
-                        state_path, w0=1, device=device
-                    )
-                else:
-                    if WITH_MRNET:
-                        net = MRFactory.load_state_dict(state_path)
-                        self.initial_states[i] = net.to(device)
-                    else:
-                        raise NoMrnetError()
-            self.known_times[i] = t
+
+        self.initial_states = initial_states
+        self.known_times = known_times
+
+        self.time_range = time_range
 
         # Spatial coordinates
         if self.grid_sampling:
@@ -77,6 +61,10 @@ class WarpingDataset(Dataset):
             m = int(math.sqrt(N))
             self.coords = get_grid([m, m]).to(self.device)
             self.int_times = 2 * (torch.arange(0, N, 1, device=self.device, dtype=torch.float32) - (N / 2)) / N
+
+        # Keypoints of the matching
+        self.src_kpts = kpts_pair[0]
+        self.tgt_kpts = kpts_pair[1]
 
     @property
     def initial_conditions(self):
@@ -103,15 +91,19 @@ class WarpingDataset(Dataset):
             # Temporal coordinates \in (0, 1), renormalized to the actual time
             # ranges of the initial conditions.
             t1, t2 = self.time_range
-            int_times = torch.rand(N, device=self.device) * (t2 - t1) + t1
+            int_times = torch.rand(N, device=self.device) * (t2 - t1) + t1  # Random times between t1 and t2
 
         X = torch.cat([
             torch.cat((self.coords, torch.full_like(int_times, 0).unsqueeze(1).to(self.device)), dim=1)
-        ], dim=0)
+        ], dim=0) # (N, 3)
         X = torch.cat(
             (X, torch.hstack((self.coords, int_times.unsqueeze(1)))),
             dim=0
-        )
+        ) # (2N, 3)
         
-
-        return X
+        out_dict = {
+            "grid_input": X,
+            "src_kpts": self.src_kpts,
+            "tgt_kpts": self.tgt_kpts
+        }
+        return out_dict

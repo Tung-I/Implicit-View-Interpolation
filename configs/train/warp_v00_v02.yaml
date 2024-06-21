@@ -1,0 +1,103 @@
+main:
+    random_seed: '6666'
+    saved_dir: 'output/NIM/banjo_v00_v02'
+
+dataset:
+    name: 'WarpingDataset'
+    src_ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
+    tgt_ckpt_path: output/NIM/banjo_v02/checkpoints/model_best.pth
+    src_kpts_path: data/banjo_00_02/1024/000_v0.dat
+    tgt_kpts_path: data/banjo_00_02/1024/000_v2.dat
+    kwargs:
+        time_range: [-1.0, 1.0]
+        n_samples: 20000
+            
+dataloader:
+    name: 'Dataloader'
+    kwargs:
+        train_batch_size: 1
+        valid_batch_size: 1
+        shuffle: true
+        num_workers: 0
+
+net:
+    name: 'SIREN'
+    kwargs:
+        in_channels: 3
+        out_channels: 2
+        hidden_layer_config: [128, 128]
+        omega_0: 24
+        omega_w: 24
+        delay_init: false
+        
+losses:
+    # - name: 'WarpingLoss'
+    #   kwargs:
+    #     constraint_weights:
+    #         data_constraint:  10000
+    #         identity_constraint:  1000
+    #         inv_constraint: 10000
+    #         TPS_constraint: 1000
+    #     intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
+    #   weight: 1.0
+    - name: 'TPSConstraintLoss'
+      weight: 1
+      kwargs:
+        constraint_weight: 1000
+    - name: 'DataConstraintLoss'
+      weight: 1
+      kwargs:
+        intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
+        constraint_weight: 10000
+    - name: 'IdentityConstraintLoss'
+      weight: 1
+      kwargs:
+        constraint_weight: 1000
+    - name: 'InverseConstraintLoss'
+      weight: 1
+      kwargs:
+        constraint_weight: 10000
+    
+    
+
+metrics:
+    - name: 'PSNR'
+
+optimizer:
+    name: 'Adam'
+    kwargs:
+        lr: 0.0001
+
+lr_scheduler:
+    name: StepLR
+    kwargs:
+        step_size: 100000
+        gamma: 0.95
+
+logger:
+    name: 'WarpingLogger'
+    kwargs:
+        dummy_input: false
+
+monitor:
+    name: 'Monitor'
+    kwargs:
+        mode: 'min'
+        target: 'Loss'
+        saved_freq: 10000000
+        early_stop: 0
+
+trainer:
+    name: 'WarpingTrainer'
+    kwargs:
+        device: 'cuda:0'
+        num_epochs: 10001
+        val_freq: 100
+        n_samples: 20000
+        warmup_steps: 1000
+        frame_dim: [540, 960]
+        n_frames: 101
+        fps: 20
+        
+        
+       

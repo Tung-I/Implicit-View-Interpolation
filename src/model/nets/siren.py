@@ -102,7 +102,7 @@ class SIREN(nn.Module):
         if not delay_init:
             self.reset_weights()
 
-    def forward(self, x, preserve_grad=True):
+    def forward(self, x, preserve_grad=False):
         """Forward pass of the model.
 
         Parameters

@@ -5,11 +5,22 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Test",
+            "name": "Train warping",
             "type": "debugpy",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "program": "triangulation2.py",
+            "program": "train_warping.py",
+            "args": [
+                "--config", "configs/train/warp_v00_v02.yaml",
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Tiranulation",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "triangulation.py",
             "console": "integratedTerminal"
         }
     ]
