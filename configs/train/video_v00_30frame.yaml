@@ -1,0 +1,79 @@
+main:
+    random_seed: '6666'
+    saved_dir: 'output/NIM/banjo_v00_30frame'
+
+dataset:
+    name: 'VideoDataset'
+    kwargs:
+        data_dir: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_000'
+        frame_dims: [540, 960]
+        frame_range: [0, 29]
+        val_samples: [10, 15, 20]
+        n_pixel_samples: 20000
+
+dataloader:
+    name: 'Dataloader'
+    kwargs:
+        train_batch_size: 1
+        valid_batch_size: 1
+        shuffle: false
+        num_workers: 0
+
+iframe_net:
+    ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
+    name: 'SIREN'
+    kwargs:
+        in_channels: 2
+        out_channels: 3
+        hidden_layer_config: [256, 256, 256]
+        omega_0: 100
+        omega_w: 100
+        delay_init: false
+
+net:
+    name: 'SIREN'
+    kwargs:
+        in_channels: 3 
+        out_channels: 2
+        hidden_layer_config: [128, 128]
+        omega_0: 24
+        omega_w: 24
+        delay_init: false
+        
+losses:
+    - name: 'MSELoss'
+      weight: 1.0
+
+metrics:
+    - name: 'PSNR'
+
+optimizer:
+    name: 'Adam'
+    kwargs:
+        lr: 0.0001
+
+lr_scheduler:
+    name: StepLR
+    kwargs:
+        step_size: 1000
+        gamma: 0.95
+
+logger:
+    name: 'ImageLogger'
+    kwargs:
+        dummy_input: false
+
+monitor:
+    name: 'Monitor'
+    kwargs:
+        mode: 'min'
+        target: 'Loss'
+        saved_freq: 10000000
+        early_stop: 0
+
+trainer:
+    name: 'VideoTrainer'
+    kwargs:
+        device: 'cuda:0'
+        num_epochs: 4000
+        val_freq: 200

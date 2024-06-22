@@ -1,6 +1,7 @@
 main:
     random_seed: '6666'
-    loaded_path: 'output/NIM/banjo_v00/checkpoints/model_best.pth'
+    # loaded_path: 'output/NIM/banjo_v00/checkpoints/model_best.pth'
+    loaded_path: /home/tvchen/ifmorph/pretrained/banj/000_v0.pth
     saved_dir: 'output/NIM/banjo_v00'
 
 dataset:

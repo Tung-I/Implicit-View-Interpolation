@@ -539,6 +539,7 @@ def create_morphing(
                 ).reshape([frame_dims[0], frame_dims[1], frame1.n_channels])
 
             rec = blend_frames(rec0, rec1, t, blending_type=blending_type)
+            # print(rec.mean(), rec.std())
             rec = cv2.cvtColor(rec, cv2.COLOR_RGB2BGR)
             cv2.putText(
                 img=rec, text='Time = %.2f' % (t.item()), org=(0, 30),

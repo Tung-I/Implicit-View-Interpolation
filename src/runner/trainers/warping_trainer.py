@@ -19,6 +19,7 @@ class WarpingTrainer(BaseTrainer):
         self.n_frames = n_frames
         self.fps = fps
         self.saved_dir = saved_dir
+        self.losses_cache = None
 
     def train(self):
         if self.np_random_seeds is None:
@@ -86,27 +87,15 @@ class WarpingTrainer(BaseTrainer):
         count = 0
         for batch in trange:
             batch = self._allocate_data(batch)
-            X, src_kpts, tgt_kpts = self._get_inputs_targets(batch)
+            coords, src_kpts, tgt_kpts = self._get_inputs_targets(batch)
             # yhat = self.net(X)
             # X = yhat["model_in"]  # requires_grad=True
             # X.allow_unused = True
 
             if mode == 'training':
-                M = self.net(X)
-                X = M['model_in'].squeeze()
-                Y = M['model_out'].squeeze()
-                X.allow_unused = True
-            
-                Ys = torch.cat((Y, -X[..., -1:]), dim=1)
-                model_Xs = self.net(Ys)
-                Xs = model_Xs['model_out']
-                Yt = torch.cat((Y, 1 - X[..., -1:]), dim=1)
-                model_Xt = self.net(Yt)
-                Xt = model_Xt['model_out']
-                Y1 = torch.cat((X[...,0:2], torch.ones_like(X[..., -1:])), dim=1)
-                X1 = self.net(Y1)['model_out']
 
-                losses = self._compute_losses(X, Y, Xs, Xt, X1, src_kpts, tgt_kpts)
+                losses = self._compute_losses(coords, src_kpts, tgt_kpts)
+                self.losses_cache = losses
 
                 loss = (torch.stack(losses) * self.loss_weights).sum()
                 self.optimizer.zero_grad()
@@ -115,36 +104,23 @@ class WarpingTrainer(BaseTrainer):
             else:
                 with torch.no_grad():
 
-                    M = self.net(X)
-                    X = M['model_in'].squeeze()
-                    Y = M['model_out'].squeeze()
-                    Ys = torch.cat((Y, -X[..., -1:]), dim=1)
-                    model_Xs = self.net(Ys)
-                    Xs = model_Xs['model_out'].squeeze()
-                    Yt = torch.cat((Y, 1 - X[..., -1:]), dim=1)
-                    model_Xt = self.net(Yt).squeeze()
-                    Xt = model_Xt['model_out']
-                    Y1 = torch.cat((X[...,0:2], torch.ones_like(X[..., -1:])), dim=1)
-                    X1 = self.net(Y1)['model_out'].squeeze()
-
-                    losses = self._compute_losses(X, Y, Xs, Xt, X1, src_kpts, tgt_kpts)
-
+                    losses = self.losses_cache
                     loss = (torch.stack(losses) * self.loss_weights).sum()
                     create_morphing(
                         warp_net=self.net,
                         frame0=self.valid_dataloader.dataset.initial_states[0],
                         frame1=self.valid_dataloader.dataset.initial_states[1],
-                        output_path=os.path(self.saved_dir, f"epoch_{self.epoch}.mp4"),
+                        output_path=os.path.join(self.saved_dir, f"epoch_{self.epoch}.mp4"),
                         frame_dims=self.frame_dim,
                         n_frames=self.n_frames,
                         fps=self.fps,
                         device=self.device,
-                        landmark_src=src_kpts,
-                        landmark_tgt=tgt_kpts,
+                        landmark_src=src_kpts.squeeze(),
+                        landmark_tgt=tgt_kpts.squeeze(),
                         plot_landmarks=True
                     )
 
-            metrics =  self._compute_metrics(grid_input, src_kpts, tgt_kpts)
+            metrics =  self._compute_metrics()
 
             batch_size = self.train_dataloader.batch_size if mode == 'training' else self.valid_dataloader.batch_size
             self._update_log(log, batch_size, loss, losses, metrics)
@@ -163,9 +139,9 @@ class WarpingTrainer(BaseTrainer):
             input (torch.Tensor): The data input.
             target (torch.LongTensor): The data target.
         """
-        return batch['grid_input'], batch['src_kpts'], batch['tgt_kpts']
+        return batch['coords'], batch['src_kpts'], batch['tgt_kpts']
 
-    def _compute_losses(self, X, Y, Xs, Xt, X1, src_kpts, tgt_kpts):
+    def _compute_losses(self, coords, src_kpts, tgt_kpts):
         """Compute the losses.
         Args:
             output (torch.Tensor): The model output.
@@ -175,19 +151,13 @@ class WarpingTrainer(BaseTrainer):
         """
         losses = []
         for loss in self.loss_fns:
-            if loss.__class__.__name__ == 'TPSConstraintLoss':
-                losses.append(loss(X, Y))
-            elif loss.__class__.__name__ == 'InverseConstraintLoss':
-                losses.append(loss(X, Xs, Xt, X1))
-            elif loss.__class__.__name__ == 'IdentityConstraintLoss':
-                losses.append(loss(X, Y))
-            elif loss.__class__.__name__ == 'DataConstraintLoss':
-                losses.append(loss(src_kpts, tgt_kpts, self.net))
+            if loss.__class__.__name__ == 'WarpingLoss':
+                losses.append(loss(coords.squeeze(), src_kpts.squeeze(), tgt_kpts.squeeze(), self.net))
             else:
                 raise RuntimeError(f"Loss function {loss.__class__.__name__} cannot be recognized.")
         return losses
 
-    def _compute_metrics(self, output, target):
+    def _compute_metrics(self):
         """Compute the metrics.
         Args:
              output (torch.Tensor): The model output.
@@ -195,7 +165,8 @@ class WarpingTrainer(BaseTrainer):
         Returns:
             metrics (list of torch.Tensor): The computed metrics.
         """
-        metrics = [metric(output, target) for metric in self.metric_fns]
+        # metrics = [metric(output, target) for metric in self.metric_fns]
+        metrics = [torch.tensor(0) for metric in self.metric_fns]
         return metrics
 
     def _init_log(self):

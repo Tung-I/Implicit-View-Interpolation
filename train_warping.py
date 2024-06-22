@@ -7,9 +7,14 @@ import yaml
 import numpy as np
 from box import Box
 from pathlib import Path
+from copy import deepcopy
+import pandas as pd
+from tqdm import tqdm
 
 import src
 from src.utils.ifmorph_utils import from_pth
+from src.model.losses import WarpingLoss
+from src.utils import create_morphing
 
 def main(args):
     logging.info(f'Load the config from "{args.config}".')
@@ -33,84 +38,147 @@ def main(args):
         raise ValueError("The cuda is not available. Please set the device in the trainer section to 'cpu'.")
     device = torch.device(config.trainer.kwargs.device)
 
-    logging.info('Create the training and validation datasets.')
-    im0_model = from_pth(config.dataset.src_ckpt_path, w0=1, device=device)
-    im1_model = from_pth(config.dataset.tgt_ckpt_path, w0=1, device=device)
-    warp_src_pts = np.load(config.dataset.src_kpts_path, allow_pickle=True)
-    warp_tgt_pts = np.load(config.dataset.tgt_kpts_path, allow_pickle=True)
-    config.dataset.kwargs.update(initial_states=[im0_model, im1_model], kpts_pair=[warp_src_pts, warp_tgt_pts])
-    train_dataset = _get_instance(src.datasets, config.dataset)
-    valid_dataset = _get_instance(src.datasets, config.dataset)
+    logging.info('Create the datasets.')
+    # config.dataset.kwargs.update(initial_states=[im0, im1])
+    dataset = _get_instance(src.datasets, config.dataset)
 
-    logging.info('Create the dataloaders.')
-    cls = getattr(src.datasets, config.dataset.name)
-    train_batch_size, valid_batch_size = config.dataloader.kwargs.pop('train_batch_size'), config.dataloader.kwargs.pop('valid_batch_size')
-    config.dataloader.kwargs.update(collate_fn=getattr(cls, 'collate_fn', None), batch_size=train_batch_size)
-    train_dataloader = _get_instance(src.datasets.dataloader, config.dataloader, train_dataset)
-    config.dataloader.kwargs.update(batch_size=valid_batch_size)
-    valid_dataloader = _get_instance(src.datasets.dataloader, config.dataloader, valid_dataset)
+    logging.info('Load the neural images.')
+    # im0 = from_pth(config.dataset.src_ckpt_path, w0=1, device=device)
+    # im1 = from_pth(config.dataset.tgt_ckpt_path, w0=1, device=device)
+    im0 = _get_instance(src.model.nets, config.im_net).to(device)
+    im1 = _get_instance(src.model.nets, config.im_net).to(device)
+    ckpt_im0 = torch.load(config.im_net.src_ckpt_path, map_location=device)
+    ckpt_im1 = torch.load(config.im_net.tgt_ckpt_path, map_location=device)
+    im0.load_state_dict(ckpt_im0['net'])
+    im1.load_state_dict(ckpt_im1['net'])
 
     logging.info('Create the network architecture.')
-    net = _get_instance(src.model.nets, config.net)
+    model = _get_instance(src.model.nets, config.net).to(device)
 
     logging.info('Create the loss functions and the corresponding weights.')
-    loss_fns, loss_weights = [], []
-    defaulted_loss_fns = [loss_fn for loss_fn in dir(torch.nn) if 'Loss' in loss_fn]
-    for config_loss in config.losses:
-        if config_loss.name in defaulted_loss_fns:
-            loss_fn = _get_instance(torch.nn, config_loss)
-        else:
-            if config_loss.name == 'WarpingLoss':
-                loss_fn = _get_instance(src.model.losses, config_loss, warp_src_pts, warp_tgt_pts)
-            else:
-                loss_fn = _get_instance(src.model.losses, config_loss)
-        loss_fns.append(loss_fn)
-        loss_weights.append(config_loss.weight)
-
-    logging.info('Create the metric functions.')
-    metric_fns = [_get_instance(src.model.metrics, config_metric) for config_metric in config.metrics]
+    src_kpts = np.load(config.dataset.src_kpts_path, allow_pickle=True)
+    tgt_kpts = np.load(config.dataset.tgt_kpts_path, allow_pickle=True)
+    src_kpts = torch.tensor(src_kpts).to(device)
+    tgt_kpts = torch.tensor(tgt_kpts).to(device)
+    best_loss = np.inf
+    training_loss = {}
+    loss_func = WarpingLoss(
+        warp_src_pts=src_kpts,
+        warp_tgt_pts=tgt_kpts,
+        intermediate_times=config.losses.intermediate_times,
+        constraint_weights=config.losses.constraint_weights,
+    )
 
     logging.info('Create the optimizer.')
-    optimizer = _get_instance(torch.optim, config.optimizer, net.parameters())
+    optimizer = _get_instance(torch.optim, config.optimizer, model.parameters())
 
-    logging.info('Create the learning rate scheduler.')
-    lr_scheduler = _get_instance(torch.optim.lr_scheduler, config.lr_scheduler, optimizer) if config.get('lr_scheduler') else None
+    logging.info('Start training.')
+    training_steps = config.trainer.kwargs.num_epochs
+    warmup_steps = config.trainer.kwargs.warmup_steps
+    checkpoint_steps = config.trainer.kwargs.ckpt_step
+    reconstruct_steps = config.trainer.kwargs.vis_step
+    frame_dim = config.trainer.kwargs.frame_dim
+    n_frames = config.trainer.kwargs.n_frames
+    fps = config.trainer.kwargs.fps
+    trange = tqdm(range(training_steps))
+    log = {}
+    log['Loss'] = 0
+    for step in trange:
+        X = dataset[0]
+        X = X.to(device)
 
-    logging.info('Create the logger.')
-    print(config.logger.kwargs)
-    dummy_input = torch.randn(tuple(config.logger.kwargs.dummy_input)) if config.logger.kwargs.get('dummy_input') else None
-    config.logger.kwargs.update(log_dir=saved_dir / 'log', net=net, dummy_input=dummy_input)
-    logger = _get_instance(src.callbacks.loggers, config.logger)
 
-    logging.info('Create the monitor.')
-    config.monitor.kwargs.update(checkpoints_dir=saved_dir / 'checkpoints')
-    monitor = _get_instance(src.callbacks.monitor, config.monitor)
+        # X = self.dataset.__getitem__()['grid_coords']
+        #     print(X.mean(), X.std())
+        #     X = X.detach().to(self.device).requires_grad_(False)
+        #     rec = self.net(X, preserve_grad=True)["model_out"]
+        #     print(rec.mean(), rec.std())
+        #     rec = rec.detach().cpu().clip(0, 1).requires_grad_(False)
 
-    logging.info('Create the trainer.')
-    kwargs = {'device': device,
-                'train_dataloader': train_dataloader,
-                'valid_dataloader': valid_dataloader,
-                'net': net,
-                'loss_fns': loss_fns,
-                'loss_weights': loss_weights,
-                'metric_fns': metric_fns,
-                'optimizer': optimizer,
-                'lr_scheduler': lr_scheduler,
-                'logger': logger,
-                'monitor': monitor, 
-                'saved_dir': str(saved_dir)}
-    config.trainer.kwargs.update(kwargs)
-    trainer = _get_instance(src.runner.trainers, config.trainer)
+        # sz = [H, W, n_channels]
+        # rec = rec.reshape(sz).permute((2, 0, 1))
+        # img = to_pil_image(rec)
+        # fname = self.dataset.path.split('/')[-1].split('.')[0]
+        # out_img_path = osp.join(self.saved_dir, fname + "_recon.png")
+        # img.save(out_img_path)
+        # print(f"Image saved as: {out_img_path}")
 
-    loaded_path = config.main.get('loaded_path')
-    if loaded_path:
-        logging.info(f'Load the previous checkpoint from "{loaded_path}".')
-        trainer.load(Path(loaded_path))
-        logging.info('Resume training.')
-    else:
-        logging.info('Start training.')
-    trainer.train()
-    logging.info('End training.')
+
+        yhat = model(X)
+        X = yhat["model_in"] 
+        yhat = yhat["model_out"].squeeze()
+        loss = loss_func(X, model)
+
+        # Accumulating the losses.
+        running_loss = torch.zeros((1, 1)).to(device)
+        for k, v in loss.items():
+            running_loss += v
+            if k not in training_loss:
+                training_loss[k] = [v.item()]
+            else:
+                training_loss[k].append(v.item())
+
+        # if not step % 1000:
+        #     print(step, running_loss.item())
+        # Show training loss using trange.set_postfix
+        # log = {k: v.item() for k, v in loss.items()}
+        trange.set_postfix(**dict((key, f'{value: .3f}') for key, value in loss.items()))
+
+        if step > warmup_steps and running_loss.item() < best_loss:
+            best_step = step
+            best_loss = running_loss.item()
+            best_weights = deepcopy(model.state_dict())
+
+        if checkpoint_steps is not None and step > 0 and not step % checkpoint_steps:
+            torch.save(
+                model.state_dict(),
+                os.path.join(saved_dir, f"checkpoint_{step}.pth")
+            )
+
+        if reconstruct_steps is not None and step > 0 and not step % reconstruct_steps:
+            logging.info(f"Create morphing videos at step {step}.")
+            model = model.eval()
+            vidpath = os.path.join(saved_dir, f"rec_{step}.mp4")
+            with torch.no_grad():
+                create_morphing(
+                    warp_net=model,
+                    frame0=im0,
+                    frame1=im1,
+                    output_path=vidpath,
+                    frame_dims=frame_dim,
+                    n_frames=n_frames,
+                    fps=fps,
+                    device=device,
+                    landmark_src=src_kpts,
+                    landmark_tgt=tgt_kpts,
+                    plot_landmarks=False
+                )
+            model = model.train().to(device)
+
+        optimizer.zero_grad()
+        running_loss.backward()
+        optimizer.step()
+
+    logging.info("Training done.")
+    logging.info(f"Best results at step {best_step}, with loss {best_loss}.")
+    logging.info(f"Saving the results in folder {saved_dir}.")
+    model = model.eval()
+    with torch.no_grad():
+        model.update_omegas(w0=1, ww=None)
+        torch.save(
+            model.state_dict(), os.path.join(saved_dir, "weights.pth")
+        )
+
+        model.w0 = config.net.kwargs.omega_0
+        model.ww = config.net.kwargs.omega_w
+        model.load_state_dict(best_weights)
+        model.update_omegas(w0=1, ww=None)
+        torch.save(
+            model.state_dict(), os.path.join(saved_dir, "best.pth")
+        )
+
+    loss_df = pd.DataFrame.from_dict(training_loss)
+    loss_df.to_csv(os.path.join(saved_dir, "loss.csv"), sep=";")
 
 def _parse_args():
     parser = argparse.ArgumentParser(description="The script for the training and the testing.")

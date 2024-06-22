@@ -4,8 +4,10 @@ main:
 
 dataset:
     name: 'WarpingDataset'
-    src_ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
-    tgt_ckpt_path: output/NIM/banjo_v02/checkpoints/model_best.pth
+    # src_ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
+    # tgt_ckpt_path: output/NIM/banjo_v02/checkpoints/model_best.pth
+    # src_ckpt_path: /home/tvchen/ifmorph/pretrained/banj/000_v0.pth
+    # tgt_ckpt_path: /home/tvchen/ifmorph/pretrained/banj/000_v2.pth
     src_kpts_path: data/banjo_00_02/1024/000_v0.dat
     tgt_kpts_path: data/banjo_00_02/1024/000_v2.dat
     kwargs:
@@ -20,6 +22,19 @@ dataloader:
         shuffle: true
         num_workers: 0
 
+im_net:
+    src_ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
+    tgt_ckpt_path: output/NIM/banjo_v02/checkpoints/model_best.pth
+    name: 'SIREN'
+    kwargs:
+        in_channels: 2
+        out_channels: 3
+        hidden_layer_config: [256, 256, 256]
+        omega_0: 100
+        omega_w: 100
+        delay_init: false
+
+
 net:
     name: 'SIREN'
     kwargs:
@@ -31,6 +46,12 @@ net:
         delay_init: false
         
 losses:
+    constraint_weights:
+        data_constraint:  10000
+        identity_constraint:  1000
+        inv_constraint: 10000
+        TPS_constraint: 1000
+    intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
     # - name: 'WarpingLoss'
     #   kwargs:
     #     constraint_weights:
@@ -40,23 +61,23 @@ losses:
     #         TPS_constraint: 1000
     #     intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
     #   weight: 1.0
-    - name: 'TPSConstraintLoss'
-      weight: 1
-      kwargs:
-        constraint_weight: 1000
-    - name: 'DataConstraintLoss'
-      weight: 1
-      kwargs:
-        intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
-        constraint_weight: 10000
-    - name: 'IdentityConstraintLoss'
-      weight: 1
-      kwargs:
-        constraint_weight: 1000
-    - name: 'InverseConstraintLoss'
-      weight: 1
-      kwargs:
-        constraint_weight: 10000
+    # - name: 'TPSConstraintLoss'
+    #   weight: 1
+    #   kwargs:
+    #     constraint_weight: 1000
+    # - name: 'DataConstraintLoss'
+    #   weight: 1
+    #   kwargs:
+    #     intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
+    #     constraint_weight: 10000
+    # - name: 'IdentityConstraintLoss'
+    #   weight: 1
+    #   kwargs:
+    #     constraint_weight: 1000
+    # - name: 'InverseConstraintLoss'
+    #   weight: 1
+    #   kwargs:
+    #     constraint_weight: 10000
     
     
 
@@ -92,7 +113,8 @@ trainer:
     kwargs:
         device: 'cuda:0'
         num_epochs: 10001
-        val_freq: 100
+        ckpt_step: 5000
+        vis_step: 1000
         n_samples: 20000
         warmup_steps: 1000
         frame_dim: [540, 960]

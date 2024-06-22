@@ -16,6 +16,50 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Train image",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "train_image.py",
+            "args": [
+                "--config", "configs/train/im_v00.yaml",
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Infer image",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "infer_image.py",
+            "args": [
+                "--config", "configs/test/im_v00.yaml",
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train video",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "train_video.py",
+            "args": [
+                "--config", "configs/train/video_v00_30frame.yaml",
+            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Infer video",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "infer_video.py",
+            "args": [
+                "--config", "configs/test/video_v00_30frame.yaml",
+            ],
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Tiranulation",
             "type": "debugpy",
             "request": "launch",

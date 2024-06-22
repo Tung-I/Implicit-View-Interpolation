@@ -43,14 +43,16 @@ class WarpingDataset(Dataset):
     > X = data[0]
     > print(X.shape)  # Should print something like: [1000, 3]
     """
-    def __init__(self, initial_states: list[torch.nn.Module, torch.nn.Module], kpts_pair: list[np.array, np.array],
+    # def __init__(self, initial_states: list[torch.nn.Module, torch.nn.Module], kpts_pair: list[np.array, np.array],
+    #              n_samples: int, known_times=[0., 1.0], time_range=[-1.0, 1.0], device: str = "cuda:0", grid_sampling: bool = True):
+    def __init__(self,
                  n_samples: int, known_times=[0., 1.0], time_range=[-1.0, 1.0], device: str = "cuda:0", grid_sampling: bool = True):
         super(WarpingDataset, self).__init__()
         self.num_samples = n_samples
         self.device = device
         self.grid_sampling = grid_sampling
 
-        self.initial_states = initial_states
+        # self.initial_states = initial_states
         self.known_times = known_times
 
         self.time_range = time_range
@@ -62,13 +64,13 @@ class WarpingDataset(Dataset):
             self.coords = get_grid([m, m]).to(self.device)
             self.int_times = 2 * (torch.arange(0, N, 1, device=self.device, dtype=torch.float32) - (N / 2)) / N
 
-        # Keypoints of the matching
-        self.src_kpts = kpts_pair[0]
-        self.tgt_kpts = kpts_pair[1]
+        # # Keypoints of the matching
+        # self.src_kpts = torch.from_numpy(kpts_pair[0]).float()
+        # self.tgt_kpts = torch.from_numpy(kpts_pair[1]).float()
 
-    @property
-    def initial_conditions(self):
-        return list(zip(self.initial_states, self.known_times))
+    # @property
+    # def initial_conditions(self):
+    #     return list(zip(self.initial_states, self.known_times))
 
     def __len__(self):
         return 1
@@ -101,9 +103,11 @@ class WarpingDataset(Dataset):
             dim=0
         ) # (2N, 3)
         
-        out_dict = {
-            "grid_input": X,
-            "src_kpts": self.src_kpts,
-            "tgt_kpts": self.tgt_kpts
-        }
-        return out_dict
+        return X
+
+        # out_dict = {
+        #     "coords": X,
+        #     "src_kpts": self.src_kpts,
+        #     "tgt_kpts": self.tgt_kpts
+        # }
+        # return out_dict

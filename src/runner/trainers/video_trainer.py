@@ -6,12 +6,11 @@ import logging
 import numpy as np
 
 
-class ImageTrainer(BaseTrainer):
-    """The SIREN trainer for neural image reconstruction.
-    """
-    def __init__(self, im_dim=None, **kwargs):
+class VideoTrainer(BaseTrainer):
+    def __init__(self, frame_dims, iframe_net, **kwargs):
         super().__init__(**kwargs)
-        self.im_dim = im_dim
+        self.frame_dims = frame_dims
+        self.iframe_net = iframe_net.to(self.device)
 
     def train(self):
         if self.np_random_seeds is None:
@@ -42,7 +41,7 @@ class ImageTrainer(BaseTrainer):
                 # self.logger.write(self.epoch, train_log, train_batch, train_outputs.unsqueeze(0),
                 #                 valid_log, valid_batch, valid_outputs.unsqueeze(0), self.im_dim)
                 self.logger.write(self.epoch, train_log, train_batch, train_outputs,
-                                valid_log, valid_batch, valid_outputs, self.im_dim)
+                                valid_log, valid_batch, valid_outputs, self.frame_dims)
 
             # Save the regular checkpoint.
             saved_path = self.monitor.is_saved(self.epoch)
@@ -82,23 +81,40 @@ class ImageTrainer(BaseTrainer):
         count = 0
         for batch in trange:
             batch = self._allocate_data(batch)
-            inputs, targets = self._get_inputs_targets(batch)
-   
+            coords, rgb, _, t = self._get_inputs_targets(batch)
+
             if mode == 'training':
-                outputs = self.net(inputs, preserve_grad=True)["model_out"]
-                losses = self._compute_losses(outputs, targets)
+                # temporal warping
+                coords = coords.squeeze() # (20000, 1)
+                time_coord = torch.ones_like(coords[..., :1], dtype=torch.float32) * t  # (20000, 1)
+                coords_time = torch.cat((coords, time_coord), dim=1).to(self.device)
+                delta_coords = self.net(coords_time)["model_out"].squeeze() # (N, 2)
+      
+                # get the rgb values at time t
+                outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
+                losses = self._compute_losses(outputs, rgb)
                 loss = (torch.stack(losses) * self.loss_weights).sum()
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
             else:
                 with torch.no_grad():
-                    outputs = self.net(inputs, preserve_grad=True)["model_out"]
-                    losses = self._compute_losses(outputs, targets)
+                    # temporal warping
+                    coords = coords.squeeze() # (20000, 1)
+                    time_coord = torch.ones_like(coords[..., :1], dtype=torch.float32) * t  # (20000, 1)
+                    coords_time = torch.cat((coords, time_coord), dim=1).to(self.device)
+                    delta_coords = self.net(coords_time)["model_out"].squeeze() # (N, 2)
+        
+                    # get the rgb values at time t
+                    outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
+                    losses = self._compute_losses(outputs, rgb)
                     loss = (torch.stack(losses) * self.loss_weights).sum()
+                    # ##############
+                    # outputs = self.iframe_net(coords, preserve_grad=True)["model_out"]
+                    # ###############
 
-            H, W = self.im_dim
-            metrics =  self._compute_metrics(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2 ), targets.view(-1, H, W, 3).permute(0, 3, 1, 2 ))
+            H, W = self.frame_dims
+            metrics =  self._compute_metrics(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2 ))
 
             batch_size = self.train_dataloader.batch_size if mode == 'training' else self.valid_dataloader.batch_size
             self._update_log(log, batch_size, loss, losses, metrics)
@@ -117,8 +133,10 @@ class ImageTrainer(BaseTrainer):
             input (torch.Tensor): The data input.
             target (torch.LongTensor): The data target.
         """
-        return batch['grid_coords'].detach().to(self.device).requires_grad_(False), \
-              batch['rgb'].detach().to(self.device).requires_grad_(False)
+        return batch['grid_coords'].detach().to(self.device).requires_grad_(False),\
+              batch['rgb'].detach().to(self.device).requires_grad_(False),\
+                  batch['idx'].detach().to(self.device).requires_grad_(False), \
+                    batch['time_step']
 
     def _compute_losses(self, output, target):
         """Compute the losses.
