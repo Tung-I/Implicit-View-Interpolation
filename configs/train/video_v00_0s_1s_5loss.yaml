@@ -1,6 +1,6 @@
 main:
     random_seed: '6666'
-    saved_dir: 'output/NIM/banjo_v00_0s_1s'
+    saved_dir: 'output/NIM/banjo_v00_0s_1s_5loss'
 
 dataset:
     name: 'VideoDataset'
@@ -34,7 +34,7 @@ net:
     kwargs:
         in_channels: 3 
         out_channels: 2
-        hidden_layer_config: [256, 256]
+        hidden_layer_config: [128, 128]
         omega_0: 24
         omega_w: 24
         delay_init: false
@@ -51,15 +51,17 @@ res_net:
         
         
 losses:
-    # - name: 'MSELoss'
-    #   weight: 1.0
-    # - name: 'L1Loss'
-    #   weight: 1.0
-    - name: 'CharbonnierLoss'
-      kwargs:
-        eps: 1.0e-6
-        out_norm: 'b'
+    - name: 'MSELoss'
       weight: 1.0
+    - name: 'L1Loss'
+      weight: 0.1
+    - name: 'PerceptualLoss'
+      weight: 0.5
+    # - name: 'StyleLoss'
+    #   weight: 0.1
+    - name: 'SSIMLoss'
+      weight: 0.2
+
 
 metrics:
     - name: 'PSNR'
@@ -72,8 +74,8 @@ optimizer:
 lr_scheduler:
     name: StepLR
     kwargs:
-        step_size: 200
-        gamma: 0.95
+        step_size: 300
+        gamma: 0.1
 
 logger:
     name: 'ImageLogger'
@@ -92,5 +94,5 @@ trainer:
     name: 'VideoTrainer'
     kwargs:
         device: 'cuda:0'
-        num_epochs: 1000
-        val_freq: 200
+        num_epochs: 400
+        val_freq: 20

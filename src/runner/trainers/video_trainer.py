@@ -7,10 +7,11 @@ import numpy as np
 
 
 class VideoTrainer(BaseTrainer):
-    def __init__(self, frame_dims, iframe_net, **kwargs):
+    def __init__(self, frame_dims, iframe_net, res_net, **kwargs):
         super().__init__(**kwargs)
         self.frame_dims = frame_dims
         self.iframe_net = iframe_net.to(self.device)
+        self.res_net = res_net.to(self.device)
 
     def train(self):
         if self.np_random_seeds is None:
@@ -82,6 +83,7 @@ class VideoTrainer(BaseTrainer):
         for batch in trange:
             batch = self._allocate_data(batch)
             coords, rgb, _, t = self._get_inputs_targets(batch)
+            H, W = self.frame_dims
 
             if mode == 'training':
                 # temporal warping
@@ -92,7 +94,10 @@ class VideoTrainer(BaseTrainer):
       
                 # get the rgb values at time t
                 outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
-                losses = self._compute_losses(outputs, rgb)
+                res_outputs = self.res_net(coords_time)["model_out"].squeeze()
+                outputs = outputs + res_outputs
+  
+                losses = self._compute_losses(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2))
                 loss = (torch.stack(losses) * self.loss_weights).sum()
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -107,14 +112,17 @@ class VideoTrainer(BaseTrainer):
         
                     # get the rgb values at time t
                     outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
-                    losses = self._compute_losses(outputs, rgb)
+                    res_outputs = self.res_net(coords_time)["model_out"].squeeze()
+                    outputs = outputs + res_outputs
+
+                    losses = self._compute_losses(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2))
                     loss = (torch.stack(losses) * self.loss_weights).sum()
                     # ##############
                     # outputs = self.iframe_net(coords, preserve_grad=True)["model_out"]
                     # ###############
 
-            H, W = self.frame_dims
-            metrics =  self._compute_metrics(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2 ))
+            metrics =  self._compute_metrics(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2))
+            # metrics = self._compute_metrics(outputs, rgb)
 
             batch_size = self.train_dataloader.batch_size if mode == 'training' else self.valid_dataloader.batch_size
             self._update_log(log, batch_size, loss, losses, metrics)
@@ -187,3 +195,19 @@ class VideoTrainer(BaseTrainer):
             log[loss.__class__.__name__] += _loss.item() * batch_size
         for metric, _metric in zip(self.metric_fns, metrics):
             log[metric.__class__.__name__] += _metric.item() * batch_size
+
+    def save(self, path):
+        """Save the model checkpoint.
+        Args:
+            path (Path): The path to save the model checkpoint.
+        """
+        torch.save({
+            'net': self.net.state_dict(),
+            'res_net': self.res_net.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'lr_scheduler': self.lr_scheduler.state_dict() if self.lr_scheduler else None,
+            'monitor': self.monitor,
+            'epoch': self.epoch,
+            'random_state': random.getstate(),
+            'np_random_seeds': self.np_random_seeds
+        }, path)

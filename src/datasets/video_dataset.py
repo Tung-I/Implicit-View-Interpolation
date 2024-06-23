@@ -6,7 +6,7 @@ from src.utils.ifmorph_utils import get_grid
 from PIL import Image
 
 class VideoDataset(Dataset):
-    def __init__(self, data_dir: str, frame_dims=[540, 960], batch_size=None, frame_range=None, n_pixel_samples=20000, val_samples=[10], _type='train'):
+    def __init__(self, data_dir: str, frame_dims=[540, 960], batch_size=None, frame_range=None, val_samples=[10], _type='train'):
         super(VideoDataset, self).__init__()
         self.data_dir = os.path.expanduser(data_dir) if data_dir[0] == "~" else data_dir
         self.frame_paths = sorted([os.path.join(self.data_dir, fname) for fname in os.listdir(self.data_dir) if fname.endswith('.png')])
@@ -30,7 +30,7 @@ class VideoDataset(Dataset):
 
         self.val_samples = val_samples
         self.type = _type
-        self.n_pixel_samples = n_pixel_samples
+        # self.n_pixel_samples = n_pixel_samples
 
         self.rgbs = []
         for frame_path in self.frame_paths:

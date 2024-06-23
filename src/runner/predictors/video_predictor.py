@@ -6,9 +6,10 @@ import os.path as osp
 
 
 class VideoPredictor:
-    def __init__(self, net, iframe_net, device, saved_dir, frame_dims, dataloader):
+    def __init__(self, net, iframe_net, res_net, device, saved_dir, frame_dims, dataloader):
         self.device = device
         self.net = net.to(device)
+        self.res_net = res_net.to(device)
         self.iframe_net = iframe_net.to(self.device)
         self.saved_dir = saved_dir
         self.frame_dims = frame_dims
@@ -33,11 +34,16 @@ class VideoPredictor:
                 time_coord = torch.ones_like(coords[..., :1], dtype=torch.float32) * t  # (20000, 1)
                 coords_time = torch.cat((coords, time_coord), dim=1).to(self.device)
                 delta_coords = self.net(coords_time)["model_out"].squeeze() # (N, 2)
-    
+      
                 # get the rgb values at time t
                 outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
 
+                res_outputs = self.res_net(coords_time)["model_out"].squeeze()
+                outputs = outputs + res_outputs
+
                 outputs = outputs.view(H, W, 3)
+                # Clip the outputs to the valid range.
+                outputs = torch.clamp(outputs, 0, 1)
                 rgb = rgb.view(H, W, 3)
                 gt_frames.append(rgb.detach().cpu().numpy())
                 pred_frames.append(outputs.detach().cpu().numpy())

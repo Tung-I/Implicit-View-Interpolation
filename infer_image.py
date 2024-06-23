@@ -32,8 +32,9 @@ def main(args):
     logging.info(f'Load the previous checkpoint from "{config.main.loaded_path}".')
     net = _get_instance(src.model.nets, config.net).to(device)
     checkpoint = torch.load(config.main.loaded_path, map_location=device)
-    # net.load_state_dict(checkpoint['net'])
-    net.load_state_dict(checkpoint)
+    net.load_state_dict(checkpoint['net'])
+    net.eval()
+    # net.load_state_dict(checkpoint)
     
     logging.info('Create the metric functions.')
     metric_fns = [_get_instance(src.model, config_metric) for config_metric in config.metrics]

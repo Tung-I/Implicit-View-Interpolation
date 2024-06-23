@@ -1,7 +1,7 @@
 main:
     random_seed: '6666'
-    loaded_path: 'output/NIM/banjo_v02/checkpoints/model_best.pth'
-    saved_dir: 'output/NIM/banjo_v02'
+    loaded_path: 'output/NIM/banjo_v02_4layer/checkpoints/model_best.pth'
+    saved_dir: 'output/NIM/banjo_v02_4layer'
 
 dataset:
     name: 'ImageDataset'
@@ -14,7 +14,7 @@ net:
     kwargs:
         in_channels: 2
         out_channels: 3
-        hidden_layer_config: [256, 256, 256]
+        hidden_layer_config: [128, 256, 256, 128]
         omega_0: 100
         omega_w: 100
         delay_init: false

@@ -1,6 +1,6 @@
 main:
     random_seed: '6666'
-    saved_dir: 'output/NIM/banjo_v00'
+    saved_dir: 'output/NIM/banjo_v00_4layer'
 
 dataset:
     name: 'ImageDataset'
@@ -14,14 +14,14 @@ dataloader:
         train_batch_size: 1
         valid_batch_size: 1
         shuffle: true
-        num_workers: 8
+        num_workers: 0
 
 net:
     name: 'SIREN'
     kwargs:
         in_channels: 2
         out_channels: 3
-        hidden_layer_config: [256, 256, 256]
+        hidden_layer_config: [256, 256, 256, 256]
         omega_0: 100
         omega_w: 100
         delay_init: false
@@ -41,7 +41,7 @@ optimizer:
 lr_scheduler:
     name: StepLR
     kwargs:
-        step_size: 1000
+        step_size: 200
         gamma: 0.95
 
 logger:
@@ -61,5 +61,5 @@ trainer:
     name: 'ImageTrainer'
     kwargs:
         device: 'cuda:0'
-        num_epochs: 1500
-        val_freq: 100
+        num_epochs: 3200
+        val_freq: 200

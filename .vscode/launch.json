@@ -44,7 +44,7 @@
             "cwd": "${workspaceFolder}",
             "program": "train_video.py",
             "args": [
-                "--config", "configs/train/video_v00_30frame.yaml",
+                "--config", "configs/train/video_v00_0s_1s_5loss.yaml",
             ],
             "console": "integratedTerminal"
         },
@@ -55,7 +55,7 @@
             "cwd": "${workspaceFolder}",
             "program": "infer_video.py",
             "args": [
-                "--config", "configs/test/video_v00_30frame.yaml",
+                "--config", "configs/test/video_v00_30frame_res.yaml",
             ],
             "console": "integratedTerminal"
         },

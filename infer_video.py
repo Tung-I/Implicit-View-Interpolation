@@ -53,11 +53,18 @@ def main(args):
     iframe_net.load_state_dict(iframe_ckpt['net'])
     iframe_net.eval()
 
+    logging.info('Create the residual color network architecture.')
+    res_net = _get_instance(src.model.nets, config.res_net)
+    res_ckpt = torch.load(config.res_net.ckpt_path, map_location=device)
+    res_net.load_state_dict(res_ckpt['res_net'])
+    res_net.eval()
+
     logging.info('Create the predictor.')
     kwargs = {'device': device,
                 'dataloader': train_dataloader,
                 'net': temp_war_net,
                 'iframe_net': iframe_net,
+                'res_net': res_net,
                 'frame_dims': config.dataset.kwargs.frame_dims, 
                 'saved_dir': saved_dir}
     config.predictor.kwargs.update(kwargs)
