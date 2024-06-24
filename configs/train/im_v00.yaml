@@ -1,19 +1,19 @@
 main:
     random_seed: '6666'
-    saved_dir: 'output/NIM/banjo_v00_4layer'
+    saved_dir: 'output/NIM/banjo_vw00_ds'
 
 dataset:
     name: 'ImageDataset'
     kwargs:
-        path: 'data/banjo_00_02/000_v0.png'
-        sidelen: [540, 960]
+        path: '/dlbimg/datasets/View_transition/content_banjoman_480x270/vw_000/000.png'
+        sidelen: [270, 480]
             
 dataloader:
     name: 'Dataloader'
     kwargs:
         train_batch_size: 1
         valid_batch_size: 1
-        shuffle: true
+        shuffle: false
         num_workers: 0
 
 net:
@@ -21,7 +21,7 @@ net:
     kwargs:
         in_channels: 2
         out_channels: 3
-        hidden_layer_config: [256, 256, 256, 256]
+        hidden_layer_config: [256, 256, 256]
         omega_0: 100
         omega_w: 100
         delay_init: false
@@ -29,6 +29,8 @@ net:
 losses:
     - name: 'MSELoss'
       weight: 1.0
+    - name: 'L1Loss'
+      weight: 0.1
 
 metrics:
     - name: 'PSNR'
@@ -41,8 +43,8 @@ optimizer:
 lr_scheduler:
     name: StepLR
     kwargs:
-        step_size: 200
-        gamma: 0.95
+        step_size: 1200
+        gamma: 0.1
 
 logger:
     name: 'ImageLogger'
@@ -61,5 +63,5 @@ trainer:
     name: 'ImageTrainer'
     kwargs:
         device: 'cuda:0'
-        num_epochs: 3200
-        val_freq: 200
+        num_epochs: 1600
+        val_freq: 50

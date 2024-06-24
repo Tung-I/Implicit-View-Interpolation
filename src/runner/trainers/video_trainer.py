@@ -7,11 +7,13 @@ import numpy as np
 
 
 class VideoTrainer(BaseTrainer):
-    def __init__(self, frame_dims, iframe_net, res_net, **kwargs):
+    def __init__(self, frame_dims, iframe_net, **kwargs):
         super().__init__(**kwargs)
         self.frame_dims = frame_dims
         self.iframe_net = iframe_net.to(self.device)
-        self.res_net = res_net.to(self.device)
+        # self.res_net = res_net.to(self.device)
+        # self.res_start_epoch = res_start_epoch
+        # self.join_train_epoch = join_train_epoch
 
     def train(self):
         if self.np_random_seeds is None:
@@ -20,6 +22,17 @@ class VideoTrainer(BaseTrainer):
         while self.epoch <= self.num_epochs:
             # Reset the numpy random seed.
             np.random.seed(self.np_random_seeds[self.epoch - 1])
+
+            # # Unfreeze the res_net parameters
+            # if self.epoch == self.res_start_epoch:
+            #     for param in self.res_net.parameters():
+            #         param.requires_grad = True
+            #     for param in self.net.parameters():  # Freeze the temp_war_net parameters
+            #         param.requires_grad = False
+            
+            # if self.epoch == self.join_train_epoch:
+            #     for param in self.net.parameters():
+            #         param.requires_grad = True
 
             # Do training and validation.
             print()
@@ -86,42 +99,21 @@ class VideoTrainer(BaseTrainer):
             H, W = self.frame_dims
 
             if mode == 'training':
-                # temporal warping
-                coords = coords.squeeze() # (20000, 1)
-                time_coord = torch.ones_like(coords[..., :1], dtype=torch.float32) * t  # (20000, 1)
-                coords_time = torch.cat((coords, time_coord), dim=1).to(self.device)
-                delta_coords = self.net(coords_time)["model_out"].squeeze() # (N, 2)
-      
-                # get the rgb values at time t
-                outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
-                res_outputs = self.res_net(coords_time)["model_out"].squeeze()
-                outputs = outputs + res_outputs
-  
-                losses = self._compute_losses(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2))
+                outputs, losses = self._compute_losses(coords, rgb, t)
                 loss = (torch.stack(losses) * self.loss_weights).sum()
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
             else:
                 with torch.no_grad():
-                    # temporal warping
-                    coords = coords.squeeze() # (20000, 1)
-                    time_coord = torch.ones_like(coords[..., :1], dtype=torch.float32) * t  # (20000, 1)
-                    coords_time = torch.cat((coords, time_coord), dim=1).to(self.device)
-                    delta_coords = self.net(coords_time)["model_out"].squeeze() # (N, 2)
-        
-                    # get the rgb values at time t
-                    outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
-                    res_outputs = self.res_net(coords_time)["model_out"].squeeze()
-                    outputs = outputs + res_outputs
-
-                    losses = self._compute_losses(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2))
+                    outputs, losses = self._compute_losses(coords, rgb, t)
                     loss = (torch.stack(losses) * self.loss_weights).sum()
                     # ##############
                     # outputs = self.iframe_net(coords, preserve_grad=True)["model_out"]
                     # ###############
 
-            metrics =  self._compute_metrics(outputs.view(-1, H, W, 3).permute(0, 3, 1, 2), rgb.view(-1, H, W, 3).permute(0, 3, 1, 2))
+            H, W = self.frame_dims
+            metrics =  self._compute_metrics(outputs.view(-1, H, W, 3).permute(0, 3, 2, 1), rgb.view(-1, H, W, 3).permute(0, 3, 2, 1))
             # metrics = self._compute_metrics(outputs, rgb)
 
             batch_size = self.train_dataloader.batch_size if mode == 'training' else self.valid_dataloader.batch_size
@@ -131,6 +123,10 @@ class VideoTrainer(BaseTrainer):
 
         for key in log:
             log[key] /= count
+
+        # Clamp output values to [0, 1]
+        outputs = outputs.clamp(0, 1)
+
         return log, batch, outputs
 
     def _get_inputs_targets(self, batch):
@@ -146,7 +142,7 @@ class VideoTrainer(BaseTrainer):
                   batch['idx'].detach().to(self.device).requires_grad_(False), \
                     batch['time_step']
 
-    def _compute_losses(self, output, target):
+    def _compute_losses(self, coords, rgb, t):
         """Compute the losses.
         Args:
             output (torch.Tensor): The model output.
@@ -154,8 +150,22 @@ class VideoTrainer(BaseTrainer):
         Returns:
             losses (list of torch.Tensor): The computed losses.
         """
-        losses = [loss(output, target) for loss in self.loss_fns]
-        return losses
+        # temporal warping
+        coords = coords.squeeze() # (20000, 1)
+        time_coord = torch.ones_like(coords[..., :1], dtype=torch.float32) * t  # (20000, 1)
+        coords_time = torch.cat((coords, time_coord), dim=1).to(self.device)
+        delta_coords = self.net(coords_time)["model_out"].squeeze() # (N, 2)
+
+        # get the rgb values at time t
+        outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
+
+        # if self.epoch >= self.res_start_epoch:
+        #     res_outputs = self.res_net(coords_time)["model_out"].squeeze()
+        #     outputs = outputs + res_outputs
+
+        H, W = self.frame_dims
+        losses = [loss(outputs.view(-1, H, W, 3).permute(0, 3, 2, 1), rgb.view(-1, H, W, 3).permute(0, 3, 2, 1)) for loss in self.loss_fns]
+        return outputs, losses
 
     def _compute_metrics(self, output, target):
         """Compute the metrics.
@@ -203,7 +213,7 @@ class VideoTrainer(BaseTrainer):
         """
         torch.save({
             'net': self.net.state_dict(),
-            'res_net': self.res_net.state_dict(),
+            # 'res_net': self.res_net.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'lr_scheduler': self.lr_scheduler.state_dict() if self.lr_scheduler else None,
             'monitor': self.monitor,

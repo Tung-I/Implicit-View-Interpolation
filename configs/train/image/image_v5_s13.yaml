@@ -1,0 +1,62 @@
+dataloader:
+  kwargs:
+    num_workers: 0
+    shuffle: false
+    train_batch_size: 1
+    valid_batch_size: 1
+  name: Dataloader
+dataset:
+  kwargs:
+    path: /dlbimg/datasets/View_transition/content_banjoman_480x270/vw_005/195.png
+    sidelen:
+    - 270
+    - 480
+  name: ImageDataset
+logger:
+  kwargs:
+    dummy_input: false
+  name: ImageLogger
+losses:
+- name: MSELoss
+  weight: 1.0
+- name: L1Loss
+  weight: 0.1
+lr_scheduler:
+  kwargs:
+    gamma: 0.1
+    step_size: 1200
+  name: StepLR
+main:
+  random_seed: '6666'
+  saved_dir: output/NIM/image_v5_s13
+metrics:
+- name: PSNR
+monitor:
+  kwargs:
+    early_stop: 0
+    mode: min
+    saved_freq: 10000000
+    target: Loss
+  name: Monitor
+net:
+  kwargs:
+    delay_init: false
+    hidden_layer_config:
+    - 256
+    - 256
+    - 256
+    in_channels: 2
+    omega_0: 100
+    omega_w: 100
+    out_channels: 3
+  name: SIREN
+optimizer:
+  kwargs:
+    lr: 0.0001
+  name: Adam
+trainer:
+  kwargs:
+    device: cuda:0
+    num_epochs: 1200
+    val_freq: 50
+  name: ImageTrainer

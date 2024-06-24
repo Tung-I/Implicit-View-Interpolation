@@ -1,20 +1,20 @@
 main:
     random_seed: '6666'
-    loaded_path: 'output/NIM/banjo_v00_4layer/checkpoints/model_best.pth'
-    saved_dir: 'output/NIM/banjo_v00_4layer'
+    loaded_path: 'output/NIM/banjo_vw00_ds/checkpoints/model_best.pth'
+    saved_dir: 'output/NIM/banjo_vw00_ds'
 
 dataset:
     name: 'ImageDataset'
     kwargs:
-        path: 'data/banjo_00_02/000_v0.png'
-        sidelen: [540, 960]
+        path: '/dlbimg/datasets/View_transition/content_banjoman_480x270/vw_000//000.png'
+        sidelen: [270, 480]
         
 net:
     name: 'SIREN'
     kwargs:
         in_channels: 2
         out_channels: 3
-        hidden_layer_config: [256, 256, 256, 256]
+        hidden_layer_config: [256, 256, 256]
         omega_0: 100
         omega_w: 100
         delay_init: false
@@ -26,5 +26,5 @@ predictor:
     name: 'ImagePredictor'
     kwargs:
         device: 'cuda:0'
-        im_dim: [540, 960]
+        im_dim: [270, 480]
 

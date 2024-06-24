@@ -6,10 +6,10 @@ import os.path as osp
 
 
 class VideoPredictor:
-    def __init__(self, net, iframe_net, res_net, device, saved_dir, frame_dims, dataloader):
+    def __init__(self, net, iframe_net, device, saved_dir, frame_dims, dataloader):
         self.device = device
         self.net = net.to(device)
-        self.res_net = res_net.to(device)
+        # self.res_net = res_net.to(device)
         self.iframe_net = iframe_net.to(self.device)
         self.saved_dir = saved_dir
         self.frame_dims = frame_dims
@@ -38,8 +38,8 @@ class VideoPredictor:
                 # get the rgb values at time t
                 outputs = self.iframe_net(coords + delta_coords, preserve_grad=True)["model_out"]
 
-                res_outputs = self.res_net(coords_time)["model_out"].squeeze()
-                outputs = outputs + res_outputs
+                # res_outputs = self.res_net(coords_time)["model_out"].squeeze()
+                # outputs = outputs + res_outputs*0.1
 
                 outputs = outputs.view(H, W, 3)
                 # Clip the outputs to the valid range.

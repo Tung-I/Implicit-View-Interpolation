@@ -6,7 +6,7 @@ from src.utils.ifmorph_utils import get_grid
 from PIL import Image
 
 class VideoDataset(Dataset):
-    def __init__(self, data_dir: str, frame_dims=[540, 960], batch_size=None, frame_range=None, val_samples=[10], _type='train'):
+    def __init__(self, data_dir: str, frame_dims=[540, 960], batch_size=None, frame_range=None, _type='train'):
         super(VideoDataset, self).__init__()
         self.data_dir = os.path.expanduser(data_dir) if data_dir[0] == "~" else data_dir
         self.frame_paths = sorted([os.path.join(self.data_dir, fname) for fname in os.listdir(self.data_dir) if fname.endswith('.png')])
@@ -28,7 +28,6 @@ class VideoDataset(Dataset):
         else:
             self.batch_size = batch_size
 
-        self.val_samples = val_samples
         self.type = _type
         # self.n_pixel_samples = n_pixel_samples
 
@@ -56,7 +55,7 @@ class VideoDataset(Dataset):
     #     return rgb
 
     def __len__(self):
-        return len(self.frame_paths) if self.type=='train' else len(self.val_samples)
+        return len(self.frame_paths)
 
     def __getitem__(self, idx):
         """Returns the coordinates, RGB values and indices of pixels in the specified frame.
@@ -74,17 +73,13 @@ class VideoDataset(Dataset):
         out_dict: dict
             Dictionary containing 'grid_coords', 'rgb', and 'idx'.
         """
-        if self.type=='train' or self.type=='predict':
-            frame_idx = self.frame_idxs[idx]
-            # iidx = torch.randint(self.coords.shape[0], (self.n_pixel_samples,))
-            iidx = torch.linspace(0, self.coords.shape[0]-1, self.batch_size, dtype=torch.long)
-        else:
-            frame_idx = self.val_samples[idx]
-            iidx = torch.linspace(0, self.coords.shape[0]-1, self.batch_size, dtype=torch.long)
-            
+      
+        frame_idx = self.frame_idxs[idx]
         rgb = self.rgbs[frame_idx]
 
+        iidx = torch.linspace(0, self.coords.shape[0]-1, self.batch_size, dtype=torch.long)
         normalized_time = torch.tensor(float(frame_idx) / len(self.frame_idxs), dtype=torch.float32)
+        
         out_dict = {
             'grid_coords': self.coords[iidx, ...],
             'rgb': rgb[iidx, ...],

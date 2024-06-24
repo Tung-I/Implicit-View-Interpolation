@@ -49,9 +49,6 @@ def main(args):
     logging.info('Create the temporal warping network architecture.')
     temp_war_net = _get_instance(src.model.nets, config.net)
 
-    logging.info('Create the residual color network architecture.')
-    res_net = _get_instance(src.model.nets, config.res_net)
-
     logging.info('Create the I-frame network architecture.')
     iframe_net = _get_instance(src.model.nets, config.iframe_net)
     # Freeze the parameters of the I-frame network.
@@ -60,6 +57,11 @@ def main(args):
     for param in iframe_net.parameters():
         param.requires_grad = False
     iframe_net.eval()
+
+    # logging.info('Create the residual color network architecture.')
+    # res_net = _get_instance(src.model.nets, config.res_net)
+    # for param in res_net.parameters():
+    #     param.requires_grad = False
 
     logging.info('Create the loss functions and the corresponding weights.')
     loss_fns, loss_weights = [], []
@@ -97,7 +99,7 @@ def main(args):
                 'valid_dataloader': valid_dataloader,
                 'net': temp_war_net,
                 'iframe_net': iframe_net,
-                'res_net': res_net,
+                # 'res_net': res_net,
                 'loss_fns': loss_fns,
                 'loss_weights': loss_weights,
                 'metric_fns': metric_fns,

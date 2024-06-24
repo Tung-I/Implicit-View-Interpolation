@@ -1,0 +1,56 @@
+main:
+    random_seed: '6666'
+    saved_dir: 'output/NIM/video_banjo_v00_0s_2s'
+
+dataset:
+    name: 'VideoDataset'
+    kwargs:
+        data_dir: '/dlbimg/datasets/View_transition/content_banjoman_480x270/vw_000'
+        frame_dims: [270, 480]
+        frame_range: [0, 14]
+
+dataloader:
+    name: 'Dataloader'
+    kwargs:
+        train_batch_size: 1
+        shuffle: false
+        num_workers: 0
+
+iframe_net:
+    name: 'SIREN'
+    ckpt_path: output/NIM/banjo_vw00_ds/checkpoints/model_best.pth
+    kwargs:
+        in_channels: 2
+        out_channels: 3
+        hidden_layer_config: [256, 256, 256]
+        omega_0: 100
+        omega_w: 100
+        delay_init: false
+
+net:
+    name: 'SIREN'
+    ckpt_path: output/NIM/video_banjo_v00_0s_2s/checkpoints/model_best.pth
+    kwargs:
+        in_channels: 3 
+        out_channels: 2
+        hidden_layer_config: [256, 256, 256]
+        omega_0: 24
+        omega_w: 24
+        delay_init: false
+
+# res_net:
+#     name: 'SIREN'
+#     ckpt_path: output/NIM/video_banjo_v00_0_14/checkpoints/model_best.pth
+#     kwargs:
+#         in_channels: 3
+#         out_channels: 3
+#         hidden_layer_config: [256, 256, 256, 256]
+#         omega_0: 100
+#         omega_w: 100
+#         delay_init: false
+
+predictor:
+    name: 'VideoPredictor'
+    kwargs:
+        device: 'cuda:0'
+

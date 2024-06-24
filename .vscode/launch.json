@@ -55,7 +55,7 @@
             "cwd": "${workspaceFolder}",
             "program": "infer_video.py",
             "args": [
-                "--config", "configs/test/video_v00_30frame_res.yaml",
+                "--config", "configs/test/video_v00_0s_1s_5loss.yaml",
             ],
             "console": "integratedTerminal"
         },
