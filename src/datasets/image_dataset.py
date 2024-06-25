@@ -105,19 +105,24 @@ class ImageDataset(Dataset):
         rgb: torch.Tensor
             RGB values shaped [N, 3].
         """
-        if coords is None:
-            intcoords = (self.coords.detach().clone().cpu() * 0.5 + 0.5)
-        else:
-            intcoords = (coords.detach().clone().cpu() * 0.5 + 0.5)
-        intcoords = intcoords.clamp(self.coords.min(), self.coords.max())
-        intcoords[..., 0] *= self.size[0]
-        intcoords[..., 1] *= self.size[1]
+
+
+        intcoords = (coords.detach().clone().cpu() * 0.5 + 0.5) # between 0 and 1
+        # clamp the values to be within 0 and 1
+        intcoords = intcoords.clamp(0, 1)
+        intcoords[..., 0] *= (self.size[0] - 1)
+        intcoords[..., 1] *= (self.size[1] - 1)
         intcoords = intcoords.floor().long()
-        rgb = torch.zeros_like(self.rgb, device=self.coords.device)
-        rgb = self.rgb[
-            (intcoords[..., 0] * self.size[0]) + intcoords[..., 1],
-            ...
-        ]
+        intcoords = intcoords.view(self.size[0], self.size[1], 2)
+        # print(intcoords[..., 0].max(), intcoords[..., 1].max())
+        # print(intcoords[..., 0].min(), intcoords[..., 1].min())
+        # print(intcoords.shape)  # torch.Size([H, W, 2])
+        # Copy self.rgb
+        im = self.rgb.clone()
+        im = im.view(self.size[0], self.size[1], self.n_channels)
+        rgb = torch.zeros_like(im, device=self.coords.device)
+        # Rewrite the above loop using torch indexing
+        rgb = im[intcoords[..., 0], intcoords[..., 1], :]
         return rgb
 
     def __len__(self):
@@ -165,3 +170,121 @@ class ImageDataset(Dataset):
             'idx': iidx
         }
         return out_dict 
+    
+
+class IfmorphImageDataset(Dataset):
+    def __init__(self, path: str, sidelen=-1, channels_to_use=None,
+                 batch_size=None):
+        super(IfmorphImageDataset, self).__init__()
+        if path[0] == "~":
+            path = osp.expanduser(path)
+
+        img = Image.open(path)
+        grid_dims = None
+        if sidelen != -1:
+            if isinstance(sidelen, int):
+                grid_dims = [sidelen] * 2
+            elif isinstance(sidelen, (tuple, list)):
+                if len(sidelen) > 2:
+                    raise ValueError("sidelen has too many coordinates for"
+                                     " image.")
+                elif not sidelen:
+                    raise ValueError("No grid size provided.")
+                grid_dims = sidelen
+            else:
+                raise TypeError("sidelen is neither number or collection of"
+                                " numbers.")
+        else:
+            grid_dims = (img.height, img.width)
+
+        self.size = grid_dims
+
+        if img.mode not in ["RGB", "L", "P"]:
+            raise ValueError("Image must be RGB (3 channels) or grayscale"
+                             f" (1 channel). # channels found: {len(img.mode)}"
+                             f", format: {img.mode}")
+
+        if channels_to_use is None:
+            self.n_channels = 3 if img.mode == "RGB" else 1
+        else:
+            if channels_to_use not in [1, 3]:
+                raise ValueError("Invalid number of channels to use. Should"
+                                 f" be 1 or 3, found {channels_to_use}.")
+            self.n_channels = channels_to_use
+
+        t = [
+            transforms.Resize(grid_dims),
+            transforms.ToTensor()
+        ] if sidelen != -1 else [transforms.ToTensor()]
+        if self.n_channels == 1:
+            t.append(transforms.Grayscale())
+
+        t = transforms.Compose(t)
+        self.coords = get_grid(grid_dims)
+        self.rgb = t(img).permute(1, 2, 0).view(-1, self.n_channels)
+        if not batch_size:
+            self.batch_size = self.rgb.shape[0]
+        else:
+            self.batch_size = batch_size
+
+    def pixels(self, coords=None):
+        """
+        Parameters
+        ----------
+        coords: torch.Tensor
+            Point tensor in range [-1, 1]. Must have shape [N, 2].
+
+        Returns
+        -------
+        rgb: torch.Tensor
+            RGB values shaped [N, 3].
+        """
+        if coords is None:
+            intcoords = (self.coords.detach().clone().cpu() * 0.5 + 0.5)
+        else:
+            intcoords = (coords.detach().clone().cpu() * 0.5 + 0.5)
+        intcoords = intcoords.clamp(self.coords.min(), self.coords.max())
+        intcoords[..., 0] *= self.size[0]
+        intcoords[..., 1] *= self.size[1]
+        intcoords = intcoords.floor().long()
+        rgb = torch.zeros_like(self.rgb, device=self.coords.device)
+        rgb = self.rgb[
+            (intcoords[..., 0] * self.size[0]) + intcoords[..., 1],
+            ...
+        ]
+        return rgb
+
+    def __len__(self):
+        return math.ceil(self.rgb.shape[0] / self.batch_size)
+
+    def __getitem__(self, idx=None):
+        """Returns the coordinates, RGB values and indices of pixels in image.
+
+        Given a list of pixel indices `idx` returns their normalized
+        coordinates, RGB values and their indices as well. If the list is not
+        given (default), it will be generated and returned.
+
+        Parameters
+        ----------
+        idx: list or torch.Tensor, optional
+            Linearized pixel indices. If not given, will choose at random.
+
+        Returns
+        -------
+        coords: torch.Tensor
+            Nx2 linearized pixel coordinates
+
+        rgb: torch.Tensor
+            The Nx`self.n_channels` Pixel values. The number of columns depends
+            on the number of channels of the input image.
+
+        idx: torch.Tensor
+            Indices of the pixels selected. If the `idx` parameter is provided,
+            it will simply by a copy of it.
+        """
+        if idx is None or not len(idx):
+            iidx = torch.randint(self.coords.shape[0], (self.batch_size,))
+        elif not isinstance(idx, torch.Tensor):
+            iidx = torch.Tensor(idx)
+        iidx = iidx.to(self.coords.device)
+        return self.coords[iidx, ...], self.rgb[iidx, ...], iidx

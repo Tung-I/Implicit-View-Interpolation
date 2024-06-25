@@ -4,6 +4,7 @@ import os
 
 VIDEO_SEGMENT_LENGTH = 15
 
+
 def generate_neural_image_yaml(cfg_out_dir, model_saved_dir, data_dir, seg_idx, output_file):
 
     config = {

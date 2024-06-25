@@ -16,7 +16,7 @@ dataset:
     - 119
   name: VideoDataset
 iframe_net:
-  ckpt_path: output/NIM/image_v0_s7
+  ckpt_path: output/NIM/image_v0_s7/checkpoints/model_best.pth
   kwargs:
     delay_init: false
     hidden_layer_config:

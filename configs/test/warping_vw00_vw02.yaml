@@ -1,0 +1,51 @@
+main:
+    random_seed: '6666'
+    saved_dir: 'output/NIM/warping_v00_v02'
+
+dataset_0:
+    name: 'ImageDataset'
+    kwargs:
+        path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_000/000.png'
+
+dataset_1:
+    name: 'ImageDataset'
+    kwargs:
+        path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_002/000.png'
+
+im_net:
+    src_ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
+    tgt_ckpt_path: output/NIM/banjo_v02/checkpoints/model_best.pth
+    name: 'SIREN'
+    kwargs:
+        in_channels: 2
+        out_channels: 3
+        hidden_layer_config: [256, 256, 256]
+        omega_0: 100
+        omega_w: 100
+        delay_init: false
+
+net:
+    name: 'SIREN'
+    kwargs:
+        in_channels: 3
+        out_channels: 2
+        hidden_layer_config: [128, 128]
+        omega_0: 24
+        omega_w: 24
+        delay_init: false
+    ckpt_path: output/NIM/banjo_v00_v02/checkpoint_10000.pth
+
+trainer:
+    name: 'WarpingTrainer'
+    kwargs:
+        device: 'cuda:0'
+        num_epochs: 10001
+        ckpt_step: 5000
+        vis_step: 1000
+        n_samples: 20000
+        warmup_steps: 1000
+        frame_dim: [540, 960]
+        n_frames: 101
+        fps: 20
+        
+        

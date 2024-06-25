@@ -4,10 +4,6 @@ main:
 
 dataset:
     name: 'WarpingDataset'
-    # src_ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
-    # tgt_ckpt_path: output/NIM/banjo_v02/checkpoints/model_best.pth
-    # src_ckpt_path: /home/tvchen/ifmorph/pretrained/banj/000_v0.pth
-    # tgt_ckpt_path: /home/tvchen/ifmorph/pretrained/banj/000_v2.pth
     src_kpts_path: data/banjo_00_02/1024/000_v0.dat
     tgt_kpts_path: data/banjo_00_02/1024/000_v2.dat
     kwargs:
@@ -52,35 +48,7 @@ losses:
         inv_constraint: 10000
         TPS_constraint: 1000
     intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
-    # - name: 'WarpingLoss'
-    #   kwargs:
-    #     constraint_weights:
-    #         data_constraint:  10000
-    #         identity_constraint:  1000
-    #         inv_constraint: 10000
-    #         TPS_constraint: 1000
-    #     intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
-    #   weight: 1.0
-    # - name: 'TPSConstraintLoss'
-    #   weight: 1
-    #   kwargs:
-    #     constraint_weight: 1000
-    # - name: 'DataConstraintLoss'
-    #   weight: 1
-    #   kwargs:
-    #     intermediate_times: [0.16, 0.32, 0.5, 0.66, 0.82]
-    #     constraint_weight: 10000
-    # - name: 'IdentityConstraintLoss'
-    #   weight: 1
-    #   kwargs:
-    #     constraint_weight: 1000
-    # - name: 'InverseConstraintLoss'
-    #   weight: 1
-    #   kwargs:
-    #     constraint_weight: 10000
     
-    
-
 metrics:
     - name: 'PSNR'
 

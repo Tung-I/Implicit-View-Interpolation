@@ -11,6 +11,7 @@ import mediapipe as mp
 from collections import OrderedDict
 from src.model.nets.siren import SIREN
 from src.utils.ifmorph_point_editor import get_mediapipe_coord_dict, FaceInteractor
+from tqdm import tqdm
 
 mp_face_mesh = mp.solutions.face_mesh
 
@@ -443,7 +444,8 @@ def create_morphing(
         landmark_src,
         landmark_tgt,
         plot_landmarks=True,
-        blending_type="linear"
+        blending_type="linear", 
+        continuous=True
 ):
     """Creates a video file given a model and output path.
 
@@ -492,14 +494,21 @@ def create_morphing(
     Nothing
     """
     warp_net = warp_net.eval()
-    continuousp = False
 
-    # If the frames are continuous images (i.e. SIRENs), we must set them to
-    # "eval" mode.
-    if isinstance(frame0, torch.nn.Module):
-        frame0 = frame0.eval()
-        frame1 = frame1.eval()
-        continuousp = True
+    # continuousp = False
+    # # If the frames are continuous images (i.e. SIRENs), we must set them to
+    # # "eval" mode.
+    # if isinstance(frame0, torch.nn.Module):
+    #     frame0 = frame0.eval()
+    #     frame1 = frame1.eval()
+    #     continuousp = True
+
+    if continuous:
+        if isinstance(frame0, torch.nn.Module):
+            frame0 = frame0.eval()  
+            frame1 = frame1.eval() 
+        else:
+            raise ValueError("Continuous frames must be SIREN models")                 
 
     t1 = 0
     t2 = 1
@@ -512,18 +521,19 @@ def create_morphing(
                           frame_dims[::-1], True)
 
     with torch.no_grad():
-        if isinstance(landmark_src, torch.Tensor):
-            landmark_src = landmark_src.clone().detach()
-        else:
-            landmark_src = torch.Tensor(landmark_src).to(device).float()
+        if plot_landmarks:
+            if isinstance(landmark_src, torch.Tensor):
+                landmark_src = landmark_src.clone().detach()
+            else:
+                landmark_src = torch.Tensor(landmark_src).to(device).float()
 
-        if isinstance(landmark_tgt, torch.Tensor):
-            landmark_tgt = landmark_tgt.clone().detach()
-        else:
-            landmark_tgt = torch.Tensor(landmark_tgt).to(device).float()
+            if isinstance(landmark_tgt, torch.Tensor):
+                landmark_tgt = landmark_tgt.clone().detach()
+            else:
+                landmark_tgt = torch.Tensor(landmark_tgt).to(device).float()
 
-        for t in times:
-            if continuousp:
+        for t in tqdm(times):
+            if continuous:
                 rec0, _ = warp_shapenet_inference(
                     grid, -t, warp_net, frame0, frame_dims
                 )
