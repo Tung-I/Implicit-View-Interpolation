@@ -66,6 +66,14 @@
             "cwd": "${workspaceFolder}",
             "program": "triangulation.py",
             "console": "integratedTerminal"
+        }, 
+        {
+            "name": "Test Warping",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "camera_test.py",
+            "console": "integratedTerminal"
         }
     ]
 }

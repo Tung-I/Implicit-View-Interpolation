@@ -5,53 +5,96 @@ import sys
 import torch
 from scipy.spatial.transform import Slerp, Rotation as R
 import cv2
+from tqdm import tqdm
 
 from colmap_camera_utils import * 
 
 root_dir = "/dlbimg/datasets/View_transition/content_banjoman_960x540/colmap"
 
 if __name__ == '__main__':
-    # cameras = read_write_model.read_cameras_binary(osp.join(root_dir, 'sparse/0/cameras.bin'))
+  
     images = read_write_model.read_images_binary(osp.join(root_dir, 'sparse/0/images.bin'))
     points3d = read_write_model.read_points3D_binary(osp.join(root_dir, 'sparse/0/points3D.bin'))
-
-    transform_simple_radial_to_pinhole(osp.join(root_dir, 'sparse/0/cameras.bin'), osp.join(root_dir, 'sparse/0/cameras_pinhole.bin'))
+    # transform_simple_radial_to_pinhole(osp.join(root_dir, 'sparse/0/cameras.bin'), osp.join(root_dir, 'sparse/0/cameras_pinhole.bin'))
     cameras = read_write_model.read_cameras_binary(osp.join(root_dir, 'sparse/0/cameras_pinhole.bin'))
     
     t = 0.1
     view1_id = 1
     view2_id = 3
-    im1 = images[view1_id]
-    im2 = images[view2_id]
-    cam1 = cameras[im1.camera_id]
-    cam2 = cameras[im2.camera_id]
+    colmap_im1 = images[view1_id]
+    colmap_im2 = images[view2_id]
+    colmap_cam1 = cameras[colmap_im1.camera_id]
+    colmap_cam2 = cameras[colmap_im2.camera_id]
 
-    intp_R, intp_T, intp_K = interpolate_view(t, im1, im2, cam1, cam2)
-    cam_mod = cam1.model
-    recon_intp_K = create_intrinsic_matrix(intp_K, cam_mod)
+    # intp_R, intp_T, intp_K = interpolate_view(t, im1, im2, cam1, cam2)
+    im1_K = create_intrinsic_matrix(colmap_cam1.params, colmap_cam1.model)
+    im2_K = create_intrinsic_matrix(colmap_cam2.params, colmap_cam2.model)
 
-    src1 = cv2.imread(osp.join(root_dir, 'images', im1.name)) 
-    src2 = cv2.imread(osp.join(root_dir, 'images', im2.name))
-
-    depth1_path = osp.join("/home/tvchen/Marigold/output/banjo_vw_000/depth_bw/000_pred.png") # (H, W)
+    im1 = cv2.imread(osp.join(root_dir, 'images', colmap_im1.name)) 
+    im2 = cv2.imread(osp.join(root_dir, 'images', colmap_im2.name))
+    depth1_path = osp.join("/home/tvchen/Marigold/output/banjo_vw_000/depth_bw/000_pred.png")
     depth2_path = osp.join("/home/tvchen/Marigold/output/banjo_vw_002/depth_bw/000_pred.png")
     depth1 = cv2.imread(depth1_path, cv2.IMREAD_UNCHANGED)
     depth2 = cv2.imread(depth2_path, cv2.IMREAD_UNCHANGED)
 
-    im1_min_depth, im1_max_depth = compute_depth_range(im1, points3d)
-    im2_min_depth, im2_max_depth = compute_depth_range(im2, points3d)
+    # Denormalize depth map
+    im1_min_depth, im1_max_depth = compute_depth_range(colmap_im1, points3d)
+    im2_min_depth, im2_max_depth = compute_depth_range(colmap_im2, points3d)
+    denorm_depth1 = rescale_depth_map(depth1 / 255., im1_min_depth, im1_max_depth)
+    denorm_depth2 = rescale_depth_map(depth2 / 255., im2_min_depth, im2_max_depth)
 
-    rescale_depth1 = rescale_depth_map(depth1 / 255., im1_min_depth, im1_max_depth)
-    rescale_depth2 = rescale_depth_map(depth2 / 255., im2_min_depth, im2_max_depth)
+    R_t = colmap_im2.qvec2rotmat()  # (3, 3)
+    R_s = colmap_im1.qvec2rotmat()
+    T_t = colmap_im2.tvec  # (3, )
+    T_s = colmap_im1.tvec
+    R_relative = R_s @ R_t.T
+    T_relative = T_s - R_relative @ T_t
 
-    warped_im1 = warp_image(src1, intp_R, intp_T, recon_intp_K, rescale_depth1)
-    warped_im2 = warp_image(src2, intp_R, intp_T, recon_intp_K, rescale_depth2)
+    # out_im = np.zeros_like(im1)
+    # for u in range(im1.shape[1]):
+    #     for v in range(im1.shape[0]):
+    #         z = denorm_depth1[v, u]
+    #         if z == 0:
+    #             continue
+    #         RTz = R_relative - (np.outer(T_relative, np.array([0, 0, 1])) / z)
+    #         coord_tgt = np.array([u, v, 1])
+    #         coord_src = im1_K @ RTz @ np.linalg.inv(im2_K) @ coord_tgt
+    #         coord_src /= coord_src[2]
+    #         u_prime, v_prime = coord_src[:2]
+    #         u_prime = int(u_prime)
+    #         v_prime = int(v_prime)
+    #         if 0 <= u_prime < im1.shape[1] and 0 <= v_prime < im1.shape[0]:
+    #             out_im[v, u] = im1[v_prime, u_prime]
+
+    inv_im2_K = np.linalg.inv(im2_K)
+    v, u = np.meshgrid(range(im1.shape[0]), range(im1.shape[1]), indexing='ij')
+    homogeneous_coords_tgt = np.stack([u, v, np.ones_like(u)], axis=-1)  
+    homogeneous_coords_tgt_flat = homogeneous_coords_tgt.reshape(-1, 3).T  # (3, H*W)
+
+    depths = denorm_depth1.flatten()
+    valid_depths = depths != 0
+
+    T_relative_outer = np.outer(T_relative, np.array([0, 0, 1]))
+    RTz = np.repeat(R_relative[:, :, np.newaxis], depths.size, axis=2)
+    RTz -= T_relative_outer[:, :, np.newaxis] / depths  # (3, 3, H*W)
+
+    # print(im1_K.shape, RTz.shape, inv_im2_K.shape, homogeneous_coords_tgt_flat.shape)
+
+    temp_coord = inv_im2_K @ homogeneous_coords_tgt_flat
+    temp_coord = np.einsum('ijk, jk -> ik', RTz, temp_coord)
+    coords_src = im1_K @ temp_coord
+    coords_src /= coords_src[2, :]  # Normalize to make homogeneous
+
+
+    u_prime, v_prime = coords_src[:2].astype(int)
+    valid_indices = (u_prime >= 0) & (u_prime < im1.shape[1]) & (v_prime >= 0) & (v_prime < im1.shape[0]) & valid_depths
+    out_im = np.zeros_like(im1)
+    out_im[v.flatten()[valid_indices], u.flatten()[valid_indices]] = im1[v_prime[valid_indices], u_prime[valid_indices]]
 
     out_dir = "output/vis"
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
-    cv2.imwrite(os.path.join(out_dir, "warped_im1.png"), warped_im1)
-    cv2.imwrite(os.path.join(out_dir, "warped_im2.png"), warped_im2)
+    cv2.imwrite(os.path.join(out_dir, "warped.png"), out_im)
 
 
     # # Sanity check

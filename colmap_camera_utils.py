@@ -116,17 +116,17 @@ def warp_image(src, intp_R, intp_T, intp_K, depth):
     h, w = src.shape[:2]
     u, v = np.meshgrid(np.arange(w), np.arange(h))
     u, v = u.flatten(), v.flatten()
-    z = depth.flatten()
+    z = depth.flatten()  # (H*W, )
 
-    # Convert pixel coordinates to normalized device coordinates
+
     uv1 = np.vstack((u, v, np.ones_like(u)))  # (3, H*W)
-    # print(uv1.shape)
-    K_inv = np.linalg.inv(intp_K)
 
+    K_inv = np.linalg.inv(intp_K)
     norm_coords = K_inv @ uv1
 
     # Apply the depth to get the 3D coordinates in the camera frame
-    norm_coords *= z
+    norm_coords *= z  # (3, H*W)
+    print(norm_coords.shape)
 
     # Construct the 4x4 transformation matrix
     intp_T = np.reshape(intp_T, (3, 1))
