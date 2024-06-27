@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from src.utils.diff_operators import hessian
 import torchvision.models as models
+import cv2
 import pytorch_ssim
 from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
 
@@ -33,30 +34,6 @@ def get_outnorm(x:torch.Tensor, out_norm:str='') -> torch.Tensor:
         norm /= img_shape[-1]*img_shape[-2]
 
     return norm
-
-class ColorConsistencyLoss(nn.Module):
-    """The Color Consistency Loss.
-    """
-    def __init__(self):
-        super(ColorConsistencyLoss, self).__init__()
-        self.mse_loss = nn.MSELoss()
-
-    def forward(self, output, target):
-        output_lab = self.rgb_to_lab(output)
-        target_lab = self.rgb_to_lab(target)
-        return self.mse_loss(output_lab, target_lab)
-
-    @staticmethod
-    def rgb_to_lab(img):
-        # Convert RGB image to Lab color space
-        img = img.permute(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
-        img = img.cpu().detach().numpy()
-        lab_imgs = []
-        for i in range(img.shape[0]):
-            lab_img = cv2.cvtColor(img[i], cv2.COLOR_RGB2Lab)
-            lab_imgs.append(lab_img)
-        lab_imgs = torch.tensor(lab_imgs).permute(0, 3, 1, 2).float()  # (N, H, W, C) -> (N, C, H, W)
-        return lab_imgs.to(img.device)
 
 class CharbonnierLoss(nn.Module):
     """Charbonnier Loss (L1)"""

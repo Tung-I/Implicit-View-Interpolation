@@ -9,6 +9,8 @@ import torch
 import matplotlib.pyplot as plt
 import mediapipe as mp
 from collections import OrderedDict
+
+import torch.utils
 from src.model.nets.siren import SIREN
 from src.utils.ifmorph_point_editor import get_mediapipe_coord_dict, FaceInteractor
 from tqdm import tqdm
@@ -579,61 +581,110 @@ def create_morphing(
             out.write(rec)
     out.release()
 
-def create_morphing_images(
+def create_morphing_video(
         warp_net: torch.nn.Module,
-        frame0: torch.nn.Module,
-        frame1: torch.nn.Module,
+        video0: torch.utils.data.Dataset,
+        video1: torch.utils.data.Dataset,
+        output_path: str,
         frame_dims: tuple,
         n_frames: int,
+        fps: int,
         device: torch.device,
-        blending_type="linear"
+        blending_type="linear", 
 ):
-    
     warp_net = warp_net.eval()
-    continuousp = False
-    if isinstance(frame0, torch.nn.Module):
-        frame0 = frame0.eval()
-        frame1 = frame1.eval()
-        continuousp = True
 
     t1 = 0
     t2 = 1
     times = np.arange(t1, t2, (t2 - t1) / n_frames)
     grid = get_grid(frame_dims).to(device).requires_grad_(False)
 
+    out = cv2.VideoWriter(output_path,
+                          cv2.VideoWriter_fourcc(*"mp4v"),
+                          fps,
+                          frame_dims[::-1], True)
+
+    def pixels(coords, rgb, H, W):
+        """
+        Parameters
+        ----------
+        coords: torch.Tensor
+            Point tensor in range [-1, 1]. Must have shape [N, 2].
+
+        Returns
+        -------
+        rgb: torch.Tensor
+            RGB values shaped [N, 3].
+        """
+
+
+        intcoords = (coords.detach().clone().cpu() * 0.5 + 0.5) # between 0 and 1
+        # clamp the values to be within 0 and 1
+        intcoords = intcoords.clamp(0, 1)
+        intcoords[..., 0] *= (H - 1)
+        intcoords[..., 1] *= (W - 1)
+        intcoords = intcoords.floor().long()
+        intcoords = intcoords.view(H, W, 2)
+        # print(intcoords[..., 0].max(), intcoords[..., 1].max())
+        # print(intcoords[..., 0].min(), intcoords[..., 1].min())
+        # print(intcoords.shape)  # torch.Size([H, W, 2])
+        # Copy self.rgb
+        im = rgb.clone()
+        im = im.view(H, W, 3)
+        rgb = torch.zeros_like(im, device='cuda:0')
+        # Rewrite the above loop using torch indexing
+        rgb = im[intcoords[..., 0], intcoords[..., 1], :]
+        return rgb
+
     with torch.no_grad():
-        if isinstance(landmark_src, torch.Tensor):
-            landmark_src = landmark_src.clone().detach()
-        else:
-            landmark_src = torch.Tensor(landmark_src).to(device).float()
+        for t in tqdm(times):
+            frame0 = video0[int(t*n_frames)]
+            frame1 = video1[int(t*n_frames)]
+            H, W = frame_dims
 
-        if isinstance(landmark_tgt, torch.Tensor):
-            landmark_tgt = landmark_tgt.clone().detach()
-        else:
-            landmark_tgt = torch.Tensor(landmark_tgt).to(device).float()
+            coords0 = warp_points(warp_net, grid, -t)
+            coords1 = warp_points(warp_net, grid, 1 - t)
 
-        rec_list = []
-        for t in times:
-            if continuousp:
-                rec0, _ = warp_shapenet_inference(
-                    grid, -t, warp_net, frame0, frame_dims
-                )
-                rec1, _ = warp_shapenet_inference(
-                    grid, 1-t, warp_net, frame1, frame_dims
-                )
-            else:
-                rec0 = frame0.pixels(
-                    warp_points(warp_net, grid, -t)
-                ).reshape([frame_dims[0], frame_dims[1], frame0.n_channels])
-                rec1 = frame1.pixels(
-                    warp_points(warp_net, grid, 1 - t)
-                ).reshape([frame_dims[0], frame_dims[1], frame1.n_channels])
+            frame0 = frame0['rgb'].view(H, W, 3)
+            frame1 = frame1['rgb'].view(H, W, 3)
+
+            rec0 = frame0.pixels(
+                warp_points(warp_net, grid, -t)
+            ).reshape([frame_dims[0], frame_dims[1], frame0.n_channels])
+            rec1 = frame1.pixels(
+                warp_points(warp_net, grid, 1 - t)
+            ).reshape([frame_dims[0], frame_dims[1], frame1.n_channels])
 
             rec = blend_frames(rec0, rec1, t, blending_type=blending_type)
+            # print(rec.mean(), rec.std())
             rec = cv2.cvtColor(rec, cv2.COLOR_RGB2BGR)
-            rec_list.append(rec)
+            cv2.putText(
+                img=rec, text='Time = %.2f' % (t.item()), org=(0, 30),
+                fontFace=cv2.FONT_HERSHEY_TRIPLEX, fontScale=0.5,
+                color=(255, 255, 255), thickness=1
+            )
 
-    return rec_list
+            if plot_landmarks:
+                warped_src = list(
+                    warp_points(warp_net, landmark_src, t).detach().cpu().numpy()
+                )
+                warped_tgt = list(
+                    warp_points(warp_net, landmark_tgt, t - 1).detach().cpu().numpy()
+                )
+                for (point_tgt, point_src) in zip(warped_tgt, warped_src):
+                    norm_src = (int(frame_dims[1]*(point_src[1]+1)/2),
+                                int(frame_dims[0]*(point_src[0]+1)/2))
+                    norm_tgt = (int(frame_dims[1]*(point_tgt[1]+1)/2),
+                                int(frame_dims[0]*(point_tgt[0]+1)/2))
+                    rec = cv2.circle(
+                        rec, norm_src, radius=1, color=(255, 0, 0), thickness=-1
+                    )
+                    rec = cv2.circle(
+                        rec, norm_tgt, radius=1, color=(0, 255, 0), thickness=-1
+                    )
+
+            out.write(rec)
+    out.release()
             
            
 

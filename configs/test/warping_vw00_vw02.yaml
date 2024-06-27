@@ -5,12 +5,14 @@ main:
 dataset_0:
     name: 'ImageDataset'
     kwargs:
-        path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_000/000.png'
+        # path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_000/000.png'
+        path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_000/030.png'
 
 dataset_1:
     name: 'ImageDataset'
     kwargs:
-        path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_002/000.png'
+        # path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_002/000.png'
+        path: '/dlbimg/datasets/View_transition/content_banjoman_960x540/vw_002/030.png'
 
 im_net:
     src_ckpt_path: output/NIM/banjo_v00/checkpoints/model_best.pth
