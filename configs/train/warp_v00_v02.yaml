@@ -30,7 +30,6 @@ im_net:
         omega_w: 100
         delay_init: false
 
-
 net:
     name: 'SIREN'
     kwargs:

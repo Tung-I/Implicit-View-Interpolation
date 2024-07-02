@@ -23,9 +23,9 @@ def main(args):
     if not saved_dir.is_dir():
         saved_dir.mkdir(parents=True)
 
-    logging.info(f'Save the config to "{config.main.saved_dir}".')
-    with open(saved_dir / 'config.yaml', 'w+') as f:
-        yaml.dump(config.to_dict(), f, default_flow_style=False)
+    # logging.info(f'Save the config to "{config.main.saved_dir}".')
+    # with open(saved_dir / 'config.yaml', 'w+') as f:
+    #     yaml.dump(config.to_dict(), f, default_flow_style=False)
 
     random.seed(config.main.random_seed)
     torch.manual_seed(random.getstate()[1][1])
@@ -38,26 +38,44 @@ def main(args):
         raise ValueError("The cuda is not available. Please set the device in the trainer section to 'cpu'.")
     device = torch.device(config.trainer.kwargs.device)
 
-    if not args.cont:
-        logging.info('Create the datasets.')
-        dataset0 = _get_instance(src.datasets, config.dataset_0)
-        dataset1 = _get_instance(src.datasets, config.dataset_1)
-    else:
-        logging.info('Load the neural images.')
-        # im0 = from_pth(config.dataset.src_ckpt_path, w0=1, device=device)
-        # im1 = from_pth(config.dataset.tgt_ckpt_path, w0=1, device=device)
-        im0 = _get_instance(src.model.nets, config.im_net).to(device)
-        im1 = _get_instance(src.model.nets, config.im_net).to(device)
-        ckpt_im0 = torch.load(config.im_net.src_ckpt_path, map_location=device)
-        ckpt_im1 = torch.load(config.im_net.tgt_ckpt_path, map_location=device)
-        im0.load_state_dict(ckpt_im0['net'])
-        im1.load_state_dict(ckpt_im1['net'])
-        im0.eval()
-        im1.eval()
+    logging.info('Create the datasets.')
+
+    config.dataset.name = 'ImageDataset'
+    config.dataset.kwargs = {
+        'path': config.dataset.src_img_path,
+        'sidelen': config.trainer.kwargs.frame_dim,
+    }
+    dataset0 = _get_instance(src.datasets, config.dataset)
+
+    config.dataset.name = 'ImageDataset'
+    config.dataset.kwargs = {
+        'path': config.dataset.tgt_img_path,
+        'sidelen': config.trainer.kwargs.frame_dim,
+    }
+    dataset1 = _get_instance(src.datasets, config.dataset)
+
+    # if not args.cont:
+    #     logging.info('Create the datasets.')
+    #     dataset0 = _get_instance(src.datasets, config.dataset_0)
+    #     dataset1 = _get_instance(src.datasets, config.dataset_1)
+    # else:
+    #     logging.info('Load the neural images.')
+    #     # im0 = from_pth(config.dataset.src_ckpt_path, w0=1, device=device)
+    #     # im1 = from_pth(config.dataset.tgt_ckpt_path, w0=1, device=device)
+    #     im0 = _get_instance(src.model.nets, config.im_net).to(device)
+    #     im1 = _get_instance(src.model.nets, config.im_net).to(device)
+    #     ckpt_im0 = torch.load(config.im_net.src_ckpt_path, map_location=device)
+    #     ckpt_im1 = torch.load(config.im_net.tgt_ckpt_path, map_location=device)
+    #     im0.load_state_dict(ckpt_im0['net'])
+    #     im1.load_state_dict(ckpt_im1['net'])
+    #     im0.eval()
+    #     im1.eval()
 
     logging.info('Create the network architecture.')
     model = _get_instance(src.model.nets, config.net).to(device)
-    ckpt = torch.load(config.net.ckpt_path, map_location=device)
+    ckpt_path = os.path.join(config.main.saved_dir, 'checkpoint_8000.pth')
+    # ckpt_path = os.path.join(config.main.saved_dir, 'checkpoint_4000.pth')
+    ckpt = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(ckpt)
     model.eval()
 
@@ -67,39 +85,57 @@ def main(args):
     frame_dim = config.trainer.kwargs.frame_dim
     n_frames = config.trainer.kwargs.n_frames
     fps = config.trainer.kwargs.fps
+
     with torch.no_grad():
-        if args.cont:
-            vidpath = os.path.join(saved_dir, f"rec_neural_image.mp4")
-            create_morphing(
-                warp_net=model,
-                frame0=im0,
-                frame1=im1,
-                output_path=vidpath,
-                frame_dims=frame_dim,
-                n_frames=n_frames,
-                fps=fps,
-                device=device,
-                landmark_src=None,
-                landmark_tgt=None,
-                plot_landmarks=False, 
-                continuous=True
-            )
-        else:
-            vidpath = os.path.join(saved_dir, f"rec_noncont.mp4")
-            create_morphing(
-                warp_net=model,
-                frame0=dataset0,
-                frame1=dataset1,
-                output_path=vidpath,
-                frame_dims=frame_dim,
-                n_frames=n_frames,
-                fps=fps,
-                device=device,
-                landmark_src=None,
-                landmark_tgt=None,
-                plot_landmarks=False,
-                continuous=False
-            )
+        vidpath = os.path.join(saved_dir, f"recon.mp4")
+        create_morphing(
+            warp_net=model,
+            frame0=dataset0,
+            frame1=dataset1,
+            output_path=vidpath,
+            frame_dims=frame_dim,
+            n_frames=n_frames,
+            fps=fps,
+            device=device,
+            landmark_src=None,
+            landmark_tgt=None,
+            plot_landmarks=False,
+            continuous=False
+        )
+
+    # with torch.no_grad():
+    #     if args.cont:
+    #         vidpath = os.path.join(saved_dir, f"rec_neural_image.mp4")
+    #         create_morphing(
+    #             warp_net=model,
+    #             frame0=im0,
+    #             frame1=im1,
+    #             output_path=vidpath,
+    #             frame_dims=frame_dim,
+    #             n_frames=n_frames,
+    #             fps=fps,
+    #             device=device,
+    #             landmark_src=None,
+    #             landmark_tgt=None,
+    #             plot_landmarks=False, 
+    #             continuous=True
+    #         )
+    #     else:
+    #         vidpath = os.path.join(saved_dir, f"rec_noncont.mp4")
+    #         create_morphing(
+    #             warp_net=model,
+    #             frame0=dataset0,
+    #             frame1=dataset1,
+    #             output_path=vidpath,
+    #             frame_dims=frame_dim,
+    #             n_frames=n_frames,
+    #             fps=fps,
+    #             device=device,
+    #             landmark_src=None,
+    #             landmark_tgt=None,
+    #             plot_landmarks=False,
+    #             continuous=False
+    #         )
 
 
 def _parse_args():

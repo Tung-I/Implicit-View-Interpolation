@@ -7,18 +7,59 @@ from scipy.spatial.transform import Slerp, Rotation as R
 import cv2
 from tqdm import tqdm
 
-from colmap_camera_utils import * 
-
 root_dir = "/dlbimg/datasets/View_transition/content_banjoman_960x540/colmap"
 
+colmap_scripts_path = "/home/tvchen/colmap/scripts/python"
+sys.path.append(colmap_scripts_path)
+import read_write_model
+
+def get_camera_pose(image):
+    qvec = image.qvec
+    tvec = image.tvec
+    R = read_write_model.qvec2rotmat(qvec)
+    camera_pose = np.hstack((R, tvec.reshape(-1, 1)))
+    camera_pose = np.vstack((camera_pose, np.array([0, 0, 0, 1])))
+    return camera_pose
+
+def create_intrinsic_matrix(params, model='PINHOLE'):
+    if model == 'PINHOLE':
+        fx, fy, cx, cy = params
+        intrinsic_matrix = np.array([
+            [fx,  0, cx],
+            [ 0, fy, cy],
+            [ 0,  0,  1]
+        ])
+    elif model == 'SIMPLE_PINHOLE':
+        f, cx, cy = params
+        intrinsic_matrix = np.array([
+            [f, 0, cx],
+            [0, f, cy],
+            [0, 0,  1]
+        ])
+    else:
+        raise NotImplementedError(f"Camera model {model} not implemented.")
+    return intrinsic_matrix
+
+def compute_depth_range(image, points3D):
+    camera_pose = get_camera_pose(image)
+    depths = []
+    for point3D_id in image.point3D_ids:
+        if point3D_id != -1:
+            point3D = points3D[point3D_id]
+            point_cam = np.dot(camera_pose[:3, :3], point3D.xyz) + camera_pose[:3, 3]
+            depth = point_cam[2]
+            depths.append(depth)
+    
+    return min(depths), max(depths)
+
+def rescale_depth_map(normalized_depth_map, min_depth, max_depth):
+    return normalized_depth_map * (max_depth - min_depth) + min_depth
+
 if __name__ == '__main__':
-  
     images = read_write_model.read_images_binary(osp.join(root_dir, 'sparse/0/images.bin'))
     points3d = read_write_model.read_points3D_binary(osp.join(root_dir, 'sparse/0/points3D.bin'))
-    # transform_simple_radial_to_pinhole(osp.join(root_dir, 'sparse/0/cameras.bin'), osp.join(root_dir, 'sparse/0/cameras_pinhole.bin'))
-    cameras = read_write_model.read_cameras_binary(osp.join(root_dir, 'sparse/0/cameras_pinhole.bin'))
-    
-    t = 0.1
+    cameras = read_write_model.read_cameras_binary(osp.join(root_dir, 'sparse/0/cameras.bin'))
+
     view1_id = 1
     view2_id = 3
     colmap_im1 = images[view1_id]
@@ -26,7 +67,6 @@ if __name__ == '__main__':
     colmap_cam1 = cameras[colmap_im1.camera_id]
     colmap_cam2 = cameras[colmap_im2.camera_id]
 
-    # intp_R, intp_T, intp_K = interpolate_view(t, im1, im2, cam1, cam2)
     im1_K = create_intrinsic_matrix(colmap_cam1.params, colmap_cam1.model)
     im2_K = create_intrinsic_matrix(colmap_cam2.params, colmap_cam2.model)
 
@@ -43,28 +83,12 @@ if __name__ == '__main__':
     denorm_depth1 = rescale_depth_map(depth1 / 255., im1_min_depth, im1_max_depth)
     denorm_depth2 = rescale_depth_map(depth2 / 255., im2_min_depth, im2_max_depth)
 
-    R_t = colmap_im2.qvec2rotmat()  # (3, 3)
-    R_s = colmap_im1.qvec2rotmat()
+    R_t = read_write_model.qvec2rotmat(colmap_im2.qvec)  # (3, 3)
+    R_s = read_write_model.qvec2rotmat(colmap_im1.qvec)
     T_t = colmap_im2.tvec  # (3, )
     T_s = colmap_im1.tvec
     R_relative = R_s @ R_t.T
     T_relative = T_s - R_relative @ T_t
-
-    # out_im = np.zeros_like(im1)
-    # for u in range(im1.shape[1]):
-    #     for v in range(im1.shape[0]):
-    #         z = denorm_depth1[v, u]
-    #         if z == 0:
-    #             continue
-    #         RTz = R_relative - (np.outer(T_relative, np.array([0, 0, 1])) / z)
-    #         coord_tgt = np.array([u, v, 1])
-    #         coord_src = im1_K @ RTz @ np.linalg.inv(im2_K) @ coord_tgt
-    #         coord_src /= coord_src[2]
-    #         u_prime, v_prime = coord_src[:2]
-    #         u_prime = int(u_prime)
-    #         v_prime = int(v_prime)
-    #         if 0 <= u_prime < im1.shape[1] and 0 <= v_prime < im1.shape[0]:
-    #             out_im[v, u] = im1[v_prime, u_prime]
 
     inv_im2_K = np.linalg.inv(im2_K)
     v, u = np.meshgrid(range(im1.shape[0]), range(im1.shape[1]), indexing='ij')
@@ -76,9 +100,9 @@ if __name__ == '__main__':
 
     T_relative_outer = np.outer(T_relative, np.array([0, 0, 1]))
     RTz = np.repeat(R_relative[:, :, np.newaxis], depths.size, axis=2)
-    RTz -= T_relative_outer[:, :, np.newaxis] / depths  # (3, 3, H*W)
-
-    # print(im1_K.shape, RTz.shape, inv_im2_K.shape, homogeneous_coords_tgt_flat.shape)
+    print(depths.mean(), depths.std())
+    
+    RTz -= T_relative_outer[:, :, np.newaxis] / depths  # (3, 3, HW)
 
     temp_coord = inv_im2_K @ homogeneous_coords_tgt_flat
     temp_coord = np.einsum('ijk, jk -> ik', RTz, temp_coord)

@@ -151,7 +151,7 @@ def main(args):
                     device=device,
                     landmark_src=src_kpts,
                     landmark_tgt=tgt_kpts,
-                    plot_landmarks=False
+                    plot_landmarks=True
                 )
             model = model.train().to(device)
 

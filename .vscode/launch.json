@@ -68,7 +68,7 @@
             "console": "integratedTerminal"
         }, 
         {
-            "name": "Test Warping",
+            "name": "Test colmap warping",
             "type": "debugpy",
             "request": "launch",
             "cwd": "${workspaceFolder}",
